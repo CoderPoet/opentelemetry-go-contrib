@@ -16,17 +16,39 @@ package otelsarama
 
 import (
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
+	"go.opentelemetry.io/otel/metric/global"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
 )
 
-const defaultTracerName = "go.opentelemetry.io/contrib/instrumentation/github.com/Shopify/sarama/otelsarama"
+const defaultInstrumentName = "go.opentelemetry.io/contrib/instrumentation/github.com/Shopify/sarama/otelsarama"
 
 type config struct {
 	TracerProvider trace.TracerProvider
+	MeterProvider  metric.MeterProvider
 	Propagators    propagation.TextMapPropagator
+	Tracer         trace.Tracer
 
-	Tracer trace.Tracer
+	instruments *instruments
+
+	peerService string
+
+	consumerClientID       string
+	consumerGroupID        string
+	addresses              []string
+	resourceAttributes     []attribute.KeyValue
+	messagingCloudProvider MessagingCloudProvider
+}
+
+type MessagingCloudProvider struct {
+	Provider         string
+	AccountID        string
+	Region           string
+	AvailabilityZone string
+	Platform         string
+	InstanceID       string
 }
 
 // newConfig returns a config with all Options set.
@@ -34,15 +56,18 @@ func newConfig(opts ...Option) config {
 	cfg := config{
 		Propagators:    otel.GetTextMapPropagator(),
 		TracerProvider: otel.GetTracerProvider(),
+		MeterProvider:  global.GetMeterProvider(),
 	}
 	for _, opt := range opts {
 		opt.apply(&cfg)
 	}
 
 	cfg.Tracer = cfg.TracerProvider.Tracer(
-		defaultTracerName,
+		defaultInstrumentName,
 		trace.WithInstrumentationVersion(SemVersion()),
 	)
+
+	cfg.instruments = newInstruments(cfg.MeterProvider)
 
 	return cfg
 }
@@ -68,6 +93,17 @@ func WithTracerProvider(provider trace.TracerProvider) Option {
 	})
 }
 
+// WithMeterProvider will set the meter provider used to get a meter
+// for creating instruments.
+// Defaults to global.GetMeterProvider().
+func WithMeterProvider(provider metric.MeterProvider) Option {
+	return optionFunc(func(cfg *config) {
+		if provider != nil {
+			cfg.MeterProvider = provider
+		}
+	})
+}
+
 // WithPropagators specifies propagators to use for extracting
 // information from the HTTP requests. If none are specified, global
 // ones will be used.
@@ -76,5 +112,43 @@ func WithPropagators(propagators propagation.TextMapPropagator) Option {
 		if propagators != nil {
 			cfg.Propagators = propagators
 		}
+	})
+}
+
+func WithResource(resourceAttrs ...attribute.KeyValue) Option {
+	return optionFunc(func(cfg *config) {
+		if resourceAttrs != nil {
+			cfg.resourceAttributes = resourceAttrs
+		}
+	})
+}
+
+func WithConsumerGroupID(consumerGroupID string) Option {
+	return optionFunc(func(c *config) {
+		c.consumerGroupID = consumerGroupID
+	})
+}
+
+func WithConsumerClientID(consumerClientID string) Option {
+	return optionFunc(func(c *config) {
+		c.consumerClientID = consumerClientID
+	})
+}
+
+func WithMessagingCloudProvider(cloudInstanceProvider MessagingCloudProvider) Option {
+	return optionFunc(func(c *config) {
+		c.messagingCloudProvider = cloudInstanceProvider
+	})
+}
+
+func WithAddress(addresses []string) Option {
+	return optionFunc(func(c *config) {
+		c.addresses = addresses
+	})
+}
+
+func WithPeerService(peerService string) Option {
+	return optionFunc(func(c *config) {
+		c.peerService = peerService
 	})
 }

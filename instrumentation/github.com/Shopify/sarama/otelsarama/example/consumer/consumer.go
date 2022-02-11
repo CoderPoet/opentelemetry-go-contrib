@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/Shopify/sarama"
+	"go.opentelemetry.io/otel/attribute"
 
 	"go.opentelemetry.io/otel"
 	semconv "go.opentelemetry.io/otel/semconv/v1.7.0"
@@ -34,15 +35,19 @@ import (
 
 var (
 	brokers = flag.String("brokers", os.Getenv("KAFKA_PEERS"), "The Kafka brokers to connect to, as a comma separated list")
+
+	resourceAttrs = []attribute.KeyValue{
+		// The service name used to display traces in backends
+		semconv.ServiceNameKey.String("kafka-consumer"),
+		semconv.ServiceNamespaceKey.String("kafka"),
+		semconv.DeploymentEnvironmentKey.String("dev"),
+	}
 )
 
 func main() {
-	tp := example.InitTracer()
-	defer func() {
-		if err := tp.Shutdown(context.Background()); err != nil {
-			log.Printf("Error shutting down tracer provider: %v", err)
-		}
-	}()
+	shutdown := example.InitProvider(resourceAttrs)
+	defer shutdown()
+
 	flag.Parse()
 
 	if *brokers == "" {
@@ -59,9 +64,6 @@ func main() {
 }
 
 func startConsumerGroup(brokerList []string) {
-	consumerGroupHandler := Consumer{}
-	// Wrap instrumentation
-	handler := otelsarama.WrapConsumerGroupHandler(&consumerGroupHandler)
 
 	config := sarama.NewConfig()
 	config.Version = sarama.V2_5_0_0
@@ -72,6 +74,16 @@ func startConsumerGroup(brokerList []string) {
 	if err != nil {
 		log.Fatalln("Failed to start sarama consumer group:", err)
 	}
+
+	consumerGroupHandler := Consumer{}
+	// Wrap instrumentation
+	handler := otelsarama.WrapConsumerGroupHandler(
+		&consumerGroupHandler,
+		otelsarama.WithResource(resourceAttrs...),
+		otelsarama.WithAddress(brokerList),
+		otelsarama.WithConsumerGroupID("example"),
+		otelsarama.WithConsumerClientID("test-client"),
+	)
 
 	err = consumerGroup.Consume(context.Background(), []string{example.KafkaTopic}, handler)
 	if err != nil {
