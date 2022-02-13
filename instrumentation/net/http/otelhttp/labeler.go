@@ -46,10 +46,10 @@ func (l *Labeler) Get() []attribute.KeyValue {
 
 type labelerContextKeyType int
 
-const lablelerContextKey labelerContextKeyType = 0
+const labelerContextKey labelerContextKeyType = 0
 
 func injectLabeler(ctx context.Context, l *Labeler) context.Context {
-	return context.WithValue(ctx, lablelerContextKey, l)
+	return context.WithValue(ctx, labelerContextKey, l)
 }
 
 // LabelerFromContext retrieves a Labeler instance from the provided context if
@@ -57,7 +57,7 @@ func injectLabeler(ctx context.Context, l *Labeler) context.Context {
 // Labeler is returned and the second return value is false.  In this case it is
 // safe to use the Labeler but any attributes added to it will not be used.
 func LabelerFromContext(ctx context.Context) (*Labeler, bool) {
-	l, ok := ctx.Value(lablelerContextKey).(*Labeler)
+	l, ok := ctx.Value(labelerContextKey).(*Labeler)
 	if !ok {
 		l = &Labeler{}
 	}
