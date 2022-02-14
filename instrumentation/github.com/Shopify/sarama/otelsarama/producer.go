@@ -18,9 +18,9 @@ import (
 	"context"
 	"strconv"
 	"sync"
+	"time"
 
 	"github.com/Shopify/sarama"
-
 	"go.opentelemetry.io/otel/codes"
 
 	"go.opentelemetry.io/contrib/instrumentation/github.com/Shopify/sarama/otelsarama/internal"
@@ -35,25 +35,42 @@ type syncProducer struct {
 	saramaConfig *sarama.Config
 }
 
+type wrapSpanContainer struct {
+	ctx   context.Context
+	span  trace.Span
+	attrs []attribute.KeyValue
+}
+
 // SendMessage calls sarama.SyncProducer.SendMessage and traces the request.
 func (p *syncProducer) SendMessage(msg *sarama.ProducerMessage) (partition int32, offset int64, err error) {
-	span := startProducerSpan(p.cfg, p.saramaConfig.Version, msg)
+	requestStartTime := time.Now()
+	ctx, span, attrs := startProducerSpan(p.cfg, p.saramaConfig.Version, msg)
 	partition, offset, err = p.SyncProducer.SendMessage(msg)
-	finishProducerSpan(span, partition, offset, err)
+	finishProducerSpan(ctx, p.cfg, span, partition, offset, err, requestStartTime, attrs)
 	return partition, offset, err
 }
 
 // SendMessages calls sarama.SyncProducer.SendMessages and traces the requests.
 func (p *syncProducer) SendMessages(msgs []*sarama.ProducerMessage) error {
+	requestStartTime := time.Now()
 	// Although there's only one call made to the SyncProducer, the messages are
 	// treated individually, so we create a span for each one
-	spans := make([]trace.Span, len(msgs))
+
+	//spans := make([]trace.Span, len(msgs))
+
+	wrapSpans := make([]*wrapSpanContainer, len(msgs))
+
 	for i, msg := range msgs {
-		spans[i] = startProducerSpan(p.cfg, p.saramaConfig.Version, msg)
+		ctx, span, attrs := startProducerSpan(p.cfg, p.saramaConfig.Version, msg)
+		wrapSpans[i] = &wrapSpanContainer{
+			ctx:   ctx,
+			span:  span,
+			attrs: attrs,
+		}
 	}
 	err := p.SyncProducer.SendMessages(msgs)
-	for i, span := range spans {
-		finishProducerSpan(span, msgs[i].Partition, msgs[i].Offset, err)
+	for i, s := range wrapSpans {
+		finishProducerSpan(s.ctx, p.cfg, s.span, msgs[i].Partition, msgs[i].Offset, err, requestStartTime, s.attrs)
 	}
 	return err
 }
@@ -116,6 +133,10 @@ func (p *asyncProducer) Close() error {
 }
 
 type producerMessageContext struct {
+	ctx              context.Context
+	attrs            []attribute.KeyValue
+	requestStartTime time.Time
+
 	span           trace.Span
 	metadataBackup interface{}
 }
@@ -161,12 +182,16 @@ func WrapAsyncProducer(saramaConfig *sarama.Config, p sarama.AsyncProducer, opts
 				if !ok {
 					continue // wait for closeAsyncSig
 				}
-				span := startProducerSpan(cfg, saramaConfig.Version, msg)
+
+				ctx, span, attrs := startProducerSpan(cfg, saramaConfig.Version, msg)
 
 				// Create message context, backend message metadata
 				mc := producerMessageContext{
-					metadataBackup: msg.Metadata,
-					span:           span,
+					ctx:              ctx,
+					attrs:            attrs,
+					span:             span,
+					metadataBackup:   msg.Metadata,
+					requestStartTime: time.Now(),
 				}
 
 				// Remember metadata using span ID as a cache key
@@ -203,7 +228,8 @@ func WrapAsyncProducer(saramaConfig *sarama.Config, p sarama.AsyncProducer, opts
 			mtx.Lock()
 			if mc, ok := producerMessageContexts[key]; ok {
 				delete(producerMessageContexts, key)
-				finishProducerSpan(mc.span, msg.Partition, msg.Offset, nil)
+				finishProducerSpan(mc.ctx, cfg, mc.span, msg.Partition, msg.Offset, nil, mc.requestStartTime, mc.attrs)
+				//finishProducerSpan(mc.span, msg.Partition, msg.Offset, nil)
 				msg.Metadata = mc.metadataBackup // Restore message metadata
 			}
 			mtx.Unlock()
@@ -223,7 +249,8 @@ func WrapAsyncProducer(saramaConfig *sarama.Config, p sarama.AsyncProducer, opts
 			mtx.Lock()
 			if mc, ok := producerMessageContexts[key]; ok {
 				delete(producerMessageContexts, key)
-				finishProducerSpan(mc.span, errMsg.Msg.Partition, errMsg.Msg.Offset, errMsg.Err)
+				finishProducerSpan(mc.ctx, cfg, mc.span, errMsg.Msg.Partition, errMsg.Msg.Offset, nil, mc.requestStartTime, mc.attrs)
+				//finishProducerSpan(mc.span, errMsg.Msg.Partition, errMsg.Msg.Offset, errMsg.Err)
 				errMsg.Msg.Metadata = mc.metadataBackup // Restore message metadata
 			}
 			mtx.Unlock()
@@ -246,7 +273,7 @@ func WrapAsyncProducer(saramaConfig *sarama.Config, p sarama.AsyncProducer, opts
 	return wrapped
 }
 
-func startProducerSpan(cfg config, version sarama.KafkaVersion, msg *sarama.ProducerMessage) trace.Span {
+func startProducerSpan(cfg config, version sarama.KafkaVersion, msg *sarama.ProducerMessage) (context.Context, trace.Span, []attribute.KeyValue) {
 	// If there's a span context in the message, use that as the parent context.
 	carrier := NewProducerMessageCarrier(msg)
 	ctx := cfg.Propagators.Extract(context.Background(), carrier)
@@ -254,9 +281,14 @@ func startProducerSpan(cfg config, version sarama.KafkaVersion, msg *sarama.Prod
 	// Create a span.
 	attrs := []attribute.KeyValue{
 		semconv.MessagingSystemKey.String("kafka"),
+		semconv.PeerServiceKey.String(cfg.peerService),
+		semconv.MessageTypeSent,
 		semconv.MessagingDestinationKindTopic,
 		semconv.MessagingDestinationKey.String(msg.Topic),
 	}
+
+	InjectSourceCanonicalService(carrier, SourceCanonicalServiceFromResource(cfg.resourceAttributes))
+
 	opts := []trace.SpanStartOption{
 		trace.WithAttributes(attrs...),
 		trace.WithSpanKind(trace.SpanKindProducer),
@@ -268,16 +300,41 @@ func startProducerSpan(cfg config, version sarama.KafkaVersion, msg *sarama.Prod
 		cfg.Propagators.Inject(ctx, carrier)
 	}
 
-	return span
+	return ctx, span, attrs
 }
 
-func finishProducerSpan(span trace.Span, partition int32, offset int64, err error) {
-	span.SetAttributes(
-		semconv.MessagingMessageIDKey.String(strconv.FormatInt(offset, 10)),
-		internal.KafkaPartitionKey.Int64(int64(partition)),
-	)
+func finishProducerSpan(
+	ctx context.Context,
+	cfg config,
+	span trace.Span,
+	partition int32,
+	offset int64,
+	err error,
+	requestStartTime time.Time,
+	attrs []attribute.KeyValue,
+) {
+	attrs = append(attrs, internal.KafkaPartitionKey.Int64(int64(partition)))
+
+	attrs = AppendCommonAttributes(cfg, attrs)
+
+	span.SetAttributes(attrs...)
+	span.SetAttributes(semconv.MessagingMessageIDKey.String(strconv.FormatInt(offset, 10)))
 	if err != nil {
 		span.SetStatus(codes.Error, err.Error())
+		attrs = append(attrs, internal.StatusCodeKey.String("STATUS_CODE_ERROR"))
 	}
+
+	// Use floating point division here for higher precision (instead of Millisecond method).
+	elapsedTime := float64(time.Since(requestStartTime)) / float64(time.Millisecond)
+
+	// span kind
+	attrs = append(attrs, internal.SpanKindKey.String(trace.SpanKindProducer.String()))
+
+	// record request latency
+	cfg.instruments.requestLatencyHistogram.Record(ctx, elapsedTime, attrs...)
+
+	// record request counter
+	cfg.instruments.requestsCounter.Add(ctx, 1, attrs...)
+
 	span.End()
 }

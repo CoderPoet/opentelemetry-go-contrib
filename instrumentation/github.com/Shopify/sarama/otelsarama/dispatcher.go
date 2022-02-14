@@ -17,9 +17,9 @@ package otelsarama
 import (
 	"context"
 	"strconv"
+	"time"
 
 	"github.com/Shopify/sarama"
-
 	"go.opentelemetry.io/contrib/instrumentation/github.com/Shopify/sarama/otelsarama/internal"
 	"go.opentelemetry.io/otel/attribute"
 	semconv "go.opentelemetry.io/otel/semconv/v1.7.0"
@@ -55,21 +55,37 @@ func (w *consumerMessagesDispatcherWrapper) Run() {
 	msgs := w.d.Messages()
 
 	for msg := range msgs {
+		requestStartTime := time.Now()
+
 		// Extract a span context from message to link.
 		carrier := NewConsumerMessageCarrier(msg)
 		parentSpanContext := w.cfg.Propagators.Extract(context.Background(), carrier)
 
-		// Create a span.
+		// span and metric common attrs
 		attrs := []attribute.KeyValue{
 			semconv.MessagingSystemKey.String("kafka"),
+			semconv.PeerServiceKey.String(w.cfg.peerService),
 			semconv.MessagingDestinationKindTopic,
 			semconv.MessagingDestinationKey.String(msg.Topic),
 			semconv.MessagingOperationReceive,
-			semconv.MessagingMessageIDKey.String(strconv.FormatInt(msg.Offset, 10)),
+			semconv.MessageTypeReceived,
 			internal.KafkaPartitionKey.Int64(int64(msg.Partition)),
 		}
+
+		attrs = AppendConsumerAttributes(w.cfg, attrs)
+		attrs = AppendCommonAttributes(w.cfg, attrs)
+
+		// get SourceCanonicalServiceKey from carrier
+		sourceCanonicalService := SourceCanonicalServiceFromCarrier(carrier)
+		if len(sourceCanonicalService) > 0 {
+			attrs = append(attrs, internal.SourceCanonicalServiceKey.String(sourceCanonicalService))
+		}
+
+		// Create a span.
 		opts := []trace.SpanStartOption{
 			trace.WithAttributes(attrs...),
+			// Only set on span to attrs to prevent high cardinality in metrics
+			trace.WithAttributes(semconv.MessagingMessageIDKey.String(strconv.FormatInt(msg.Offset, 10))),
 			trace.WithSpanKind(trace.SpanKindConsumer),
 		}
 		newCtx, span := w.cfg.Tracer.Start(parentSpanContext, "kafka.consume", opts...)
@@ -79,6 +95,18 @@ func (w *consumerMessagesDispatcherWrapper) Run() {
 
 		// Send messages back to user.
 		w.messages <- msg
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedTime := float64(time.Since(requestStartTime)) / float64(time.Millisecond)
+
+		// span kind
+		attrs = append(attrs, internal.SpanKindKey.String(trace.SpanKindConsumer.String()))
+
+		// record request counter
+		w.cfg.instruments.requestsCounter.Add(parentSpanContext, 1, attrs...)
+
+		// record request latency
+		w.cfg.instruments.requestLatencyHistogram.Record(parentSpanContext, elapsedTime, attrs...)
 
 		span.End()
 	}

@@ -16,4 +16,25 @@ package internal
 
 import "go.opentelemetry.io/otel/attribute"
 
-const KafkaPartitionKey = attribute.Key("messaging.kafka.partition")
+const (
+	MessagingCloudProviderKey         = attribute.Key("messaging.cloud.provider")
+	MessagingCloudAccountIDKey        = attribute.Key("messaging.cloud.account.id")
+	MessagingCloudRegionKey           = attribute.Key("messaging.cloud.region")
+	MessagingCloudAvailabilityZoneKey = attribute.Key("messaging.cloud.availability_zone")
+	MessagingCloudPlatformKey         = attribute.Key("messaging.cloud.platform")
+	MessagingCloudInstanceIDKey       = attribute.Key("messaging.cloud.instance_id")
+)
+
+const (
+	KafkaPartitionKey = attribute.Key("messaging.kafka.partition")
+)
+
+const (
+	MessagingConsumerGroup = attribute.Key("messaging.consumer_group")
+)
+
+const (
+	SpanKindKey               = attribute.Key("span.kind")
+	StatusCodeKey             = attribute.Key("status.code")
+	SourceCanonicalServiceKey = attribute.Key("source_canonical_service")
+)

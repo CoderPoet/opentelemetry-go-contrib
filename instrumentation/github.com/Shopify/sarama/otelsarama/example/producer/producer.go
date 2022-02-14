@@ -21,29 +21,54 @@ import (
 	"log"
 	"math/rand"
 	"os"
+	"os/signal"
 	"strings"
 	"time"
 
 	"github.com/Shopify/sarama"
-
-	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/codes"
-
 	"go.opentelemetry.io/contrib/instrumentation/github.com/Shopify/sarama/otelsarama"
 	"go.opentelemetry.io/contrib/instrumentation/github.com/Shopify/sarama/otelsarama/example"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	semconv "go.opentelemetry.io/otel/semconv/v1.7.0"
 )
 
 var (
 	brokers = flag.String("brokers", os.Getenv("KAFKA_PEERS"), "The Kafka brokers to connect to, as a comma separated list")
+
+	resourceAttrs = []attribute.KeyValue{
+		semconv.ServiceNameKey.String("kafka-producer"),
+		semconv.ServiceNamespaceKey.String("kafka"),
+		semconv.DeploymentEnvironmentKey.String("dev"),
+	}
 )
 
-func main() {
-	tp := example.InitTracer()
-	defer func() {
-		if err := tp.Shutdown(context.Background()); err != nil {
-			log.Printf("Error shutting down tracer provider: %v", err)
+func newOSSignalContext() (context.Context, func()) {
+	// trap Ctrl+C and call cancel on the context
+	ctx, cancel := context.WithCancel(context.Background())
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, os.Interrupt)
+	go func() {
+		select {
+		case <-c:
+			cancel()
+		case <-ctx.Done():
 		}
 	}()
+
+	return ctx, func() {
+		signal.Stop(c)
+		cancel()
+	}
+}
+
+func main() {
+	shutdown := example.InitProvider(resourceAttrs)
+	defer shutdown()
+
+	ctx, cancel := newOSSignalContext()
+	defer cancel()
+
 	flag.Parse()
 
 	if *brokers == "" {
@@ -56,6 +81,21 @@ func main() {
 
 	producer := newAccessLogProducer(brokerList)
 
+	for {
+		select {
+		case <-ctx.Done():
+			err := producer.Close()
+			if err != nil {
+				log.Fatalln("Failed to close producer:", err)
+			}
+		default:
+			produceMsg(producer)
+			<-time.After(1 * time.Second)
+		}
+	}
+}
+
+func produceMsg(producer sarama.AsyncProducer) {
 	rand.Seed(time.Now().Unix())
 
 	// Create root span
@@ -74,12 +114,6 @@ func main() {
 	producer.Input() <- &msg
 	successMsg := <-producer.Successes()
 	log.Println("Successful to write message, offset:", successMsg.Offset)
-
-	err := producer.Close()
-	if err != nil {
-		span.SetStatus(codes.Error, err.Error())
-		log.Fatalln("Failed to close producer:", err)
-	}
 }
 
 func newAccessLogProducer(brokerList []string) sarama.AsyncProducer {
@@ -94,7 +128,20 @@ func newAccessLogProducer(brokerList []string) sarama.AsyncProducer {
 	}
 
 	// Wrap instrumentation
-	producer = otelsarama.WrapAsyncProducer(config, producer)
+	producer = otelsarama.WrapAsyncProducer(
+		config,
+		producer,
+		otelsarama.WithResource(resourceAttrs...),
+		otelsarama.WithAddress(brokerList),
+		otelsarama.WithMessagingCloudProvider(otelsarama.MessagingCloudProvider{
+			Provider:         "volcengine",
+			AccountID:        "1400000035",
+			Region:           "cn-guilin-boe",
+			AvailabilityZone: "cn-guilin-boe-a",
+			Platform:         "volcengine_kafka",
+			InstanceID:       "mock-instance-id",
+		}),
+	)
 
 	// We will log to STDOUT if we're not able to produce messages.
 	go func() {
