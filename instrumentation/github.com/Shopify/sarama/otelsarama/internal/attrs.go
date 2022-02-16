@@ -26,7 +26,8 @@ const (
 )
 
 const (
-	KafkaPartitionKey = attribute.Key("messaging.kafka.partition")
+	KafkaPartitionKey     = attribute.Key("messaging.kafka.partition")
+	MessagingPartitionKey = attribute.Key("messaging.partition")
 )
 
 const (
@@ -37,4 +38,5 @@ const (
 	SpanKindKey               = attribute.Key("span.kind")
 	StatusCodeKey             = attribute.Key("status.code")
 	SourceCanonicalServiceKey = attribute.Key("source_canonical_service")
+	SourceKafkaPartitionKey   = attribute.Key("messaging.source.kafka.partition")
 )

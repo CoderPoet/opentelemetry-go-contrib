@@ -313,7 +313,10 @@ func finishProducerSpan(
 	requestStartTime time.Time,
 	attrs []attribute.KeyValue,
 ) {
-	attrs = append(attrs, internal.KafkaPartitionKey.Int64(int64(partition)))
+	attrs = append(attrs,
+		internal.KafkaPartitionKey.Int64(int64(partition)),
+		internal.MessagingPartitionKey.Int64(int64(partition)),
+	)
 
 	attrs = AppendCommonAttributes(cfg, attrs)
 

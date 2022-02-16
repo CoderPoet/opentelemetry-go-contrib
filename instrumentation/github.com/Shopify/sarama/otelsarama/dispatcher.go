@@ -70,6 +70,7 @@ func (w *consumerMessagesDispatcherWrapper) Run() {
 			semconv.MessagingOperationReceive,
 			semconv.MessageTypeReceived,
 			internal.KafkaPartitionKey.Int64(int64(msg.Partition)),
+			internal.MessagingPartitionKey.Int64(int64(msg.Partition)),
 		}
 
 		attrs = AppendConsumerAttributes(w.cfg, attrs)
