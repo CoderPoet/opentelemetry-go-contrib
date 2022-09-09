@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package otelecho
+package otelecho // import "go.opentelemetry.io/contrib/instrumentation/github.com/labstack/echo/otelecho"
 
 import (
 	"github.com/labstack/echo/v4/middleware"
@@ -60,7 +60,7 @@ func WithTracerProvider(provider oteltrace.TracerProvider) Option {
 	})
 }
 
-//WithSkipper specifies a skipper for allowing requests to skip generating spans.
+// WithSkipper specifies a skipper for allowing requests to skip generating spans.
 func WithSkipper(skipper middleware.Skipper) Option {
 	return optionFunc(func(cfg *config) {
 		cfg.Skipper = skipper

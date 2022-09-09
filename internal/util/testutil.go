@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package util
+package util // import "go.opentelemetry.io/contrib/internal/util"
 
 import (
 	"fmt"
@@ -26,6 +26,6 @@ func IntegrationShouldRun(name string) {
 			"to",
 			fmt.Sprintf("\"%s\"", name),
 		)
-		os.Exit(0)
+		os.Exit(0) //nolint revive  // Signal test was successfully skipped.
 	}
 }

@@ -12,14 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package internal
+package internal // import "go.opentelemetry.io/contrib/instrumentation/github.com/gocql/gocql/otelgocql/internal"
 
 import (
 	"log"
 	"net"
 
 	"go.opentelemetry.io/otel/attribute"
-	semconv "go.opentelemetry.io/otel/semconv/v1.7.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.12.0"
 )
 
 const (
@@ -52,9 +52,10 @@ const (
 	// made for the query in question.
 	CassQueryAttemptsKey = attribute.Key("db.cassandra.attempts")
 
-	// Static span names
+	// CassBatchQueryName is the batch operation span name.
 	CassBatchQueryName = "Batch Query"
-	CassConnectName    = "New Connection"
+	// CassConnectName is the connect operation span name.
+	CassConnectName = "New Connection"
 
 	// InstrumentationName is the name of the instrumentation package.
 	InstrumentationName = "go.opentelemetry.io/contrib/instrumentation/github.com/gocql/gocql/otelgocql"
@@ -127,9 +128,9 @@ func CassConnectOperation() attribute.KeyValue {
 }
 
 // CassKeyspace returns the keyspace of the session as
-// a semconv KeyValue pair (db.cassandra.keyspace).
+// a semconv KeyValue pair (db.name).
 func CassKeyspace(keyspace string) attribute.KeyValue {
-	return semconv.DBCassandraKeyspaceKey.String(keyspace)
+	return semconv.DBNameKey.String(keyspace)
 }
 
 // CassBatchQueries returns the number of queries in a batch query

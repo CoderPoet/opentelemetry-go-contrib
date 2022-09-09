@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package otelecho
+package otelecho // import "go.opentelemetry.io/contrib/instrumentation/github.com/labstack/echo/otelecho"
 
 import (
 	"fmt"
@@ -24,7 +24,7 @@ import (
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/propagation"
-	semconv "go.opentelemetry.io/otel/semconv/v1.7.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.12.0"
 	oteltrace "go.opentelemetry.io/otel/trace"
 )
 
@@ -94,7 +94,7 @@ func Middleware(service string, opts ...Option) echo.MiddlewareFunc {
 			}
 
 			attrs := semconv.HTTPAttributesFromHTTPStatusCode(c.Response().Status)
-			spanStatus, spanMessage := semconv.SpanStatusFromHTTPStatusCode(c.Response().Status)
+			spanStatus, spanMessage := semconv.SpanStatusFromHTTPStatusCodeAndSpanKind(c.Response().Status, oteltrace.SpanKindServer)
 			span.SetAttributes(attrs...)
 			span.SetStatus(spanStatus, spanMessage)
 

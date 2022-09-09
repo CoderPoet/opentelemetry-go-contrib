@@ -14,7 +14,7 @@
 
 // Package filters provides a set of filters useful with the
 // otelhttp.WithFilter() option to control which inbound requests are traced.
-package filters
+package filters // import "go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp/filters"
 
 import (
 	"net/http"
@@ -62,7 +62,7 @@ func None(fs ...otelhttp.Filter) otelhttp.Filter {
 	}
 }
 
-// Not provides a convenience mechanism for inverting a Filter
+// Not provides a convenience mechanism for inverting a Filter.
 func Not(f otelhttp.Filter) otelhttp.Filter {
 	return func(r *http.Request) bool {
 		return !f(r)

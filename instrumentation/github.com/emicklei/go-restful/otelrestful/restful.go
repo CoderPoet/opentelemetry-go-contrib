@@ -12,14 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package otelrestful
+package otelrestful // import "go.opentelemetry.io/contrib/instrumentation/github.com/emicklei/go-restful/otelrestful"
 
 import (
 	"github.com/emicklei/go-restful/v3"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
-	semconv "go.opentelemetry.io/otel/semconv/v1.7.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.12.0"
 	oteltrace "go.opentelemetry.io/otel/trace"
 )
 
@@ -65,7 +65,7 @@ func OTelFilter(service string, opts ...Option) restful.FilterFunction {
 		chain.ProcessFilter(req, resp)
 
 		attrs := semconv.HTTPAttributesFromHTTPStatusCode(resp.StatusCode())
-		spanStatus, spanMessage := semconv.SpanStatusFromHTTPStatusCode(resp.StatusCode())
+		spanStatus, spanMessage := semconv.SpanStatusFromHTTPStatusCodeAndSpanKind(resp.StatusCode(), oteltrace.SpanKindServer)
 		span.SetAttributes(attrs...)
 		span.SetStatus(spanStatus, spanMessage)
 	}

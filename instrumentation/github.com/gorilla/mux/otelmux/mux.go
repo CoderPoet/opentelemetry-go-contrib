@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package otelmux
+package otelmux // import "go.opentelemetry.io/contrib/instrumentation/github.com/gorilla/mux/otelmux"
 
 import (
 	"fmt"
@@ -25,7 +25,7 @@ import (
 	"go.opentelemetry.io/otel"
 
 	"go.opentelemetry.io/otel/propagation"
-	semconv "go.opentelemetry.io/otel/semconv/v1.7.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.12.0"
 	oteltrace "go.opentelemetry.io/otel/trace"
 )
 
@@ -144,7 +144,7 @@ func (tw traceware) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	defer putRRW(rrw)
 	tw.handler.ServeHTTP(rrw.writer, r2)
 	attrs := semconv.HTTPAttributesFromHTTPStatusCode(rrw.status)
-	spanStatus, spanMessage := semconv.SpanStatusFromHTTPStatusCode(rrw.status)
+	spanStatus, spanMessage := semconv.SpanStatusFromHTTPStatusCodeAndSpanKind(rrw.status, oteltrace.SpanKindServer)
 	span.SetAttributes(attrs...)
 	span.SetStatus(spanStatus, spanMessage)
 }

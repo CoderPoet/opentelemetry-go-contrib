@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package b3
+package b3 // import "go.opentelemetry.io/contrib/propagators/b3"
 
 type config struct {
 	// InjectEncoding are the B3 encodings used when injecting trace
@@ -68,7 +68,9 @@ const (
 
 // WithInjectEncoding sets the encoding the propagator will inject.
 // The encoding is interpreted as a bitmask. Therefore
-//   WithInjectEncoding(B3SingleHeader | B3MultipleHeader)
+//
+//	WithInjectEncoding(B3SingleHeader | B3MultipleHeader)
+//
 // means the propagator will inject both single and multi B3 headers.
 func WithInjectEncoding(encoding Encoding) Option {
 	return optionFunc(func(c *config) {

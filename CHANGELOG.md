@@ -8,9 +8,104 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Changed
+
+- Rename the `Typ` field of `"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc".InterceptorInfo` to `Type`. (#2688)
+- Use Go 1.19 as the default version for CI testing/linting. (#2675)
+
+## [1.9.0/0.34.0/0.4.0] - 2022-08-02
+
 ### Added
 
-- Add `WithClientTrace` option to `otelhttp.Transport` (#875)
+- Add gRPC trace `Filter` to the `go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc` package to provide the way to filter the traces automatically generated in interceptors. (#2572)
+- The `TextMapPropagator` function to `go.opentelemetry.io/contrib/propagators/autoprop`.
+  This function is used to return a composite `TextMapPropagator` from registered names (instead of having to specify with an environment variable). (#2593)
+
+### Changed
+
+- Upgraded all `semconv` package use to `v1.12.0`. (#2589)
+
+## [1.8.0/0.33.0] - 2022-07-08
+
+### Added
+
+- The `go.opentelemetry.io/contrib/propagators/autoprop` package to provide configuration of propagators with useful defaults and envar support. (#2258)
+- `WithPublicEndpointFn` hook to dynamically detect public HTTP requests and set their trace parent as a link. (#2342)
+
+### Fixed
+
+- Fix the `otelhttp`, `otelgin`, `otelmacaron`, `otelrestful` middlewares
+  by using `SpanKindServer` when deciding the `SpanStatus`.
+  This makes `4xx` response codes to not be an error anymore. (#2427)
+
+## [1.7.0/0.32.0] - 2022-04-28
+
+### Added
+
+- Consistent probability sampler implementation. (#1379)
+
+### Changed
+
+- Upgraded all `semconv` package use to `v1.10.0`.
+  This includes a backwards incompatible change for the `otelgocql` package to conform with the specification [change](https://github.com/open-telemetry/opentelemetry-specification/pull/1973).
+  The `db.cassandra.keyspace` attribute is now transmitted as the `db.name` attribute. (#2222)
+
+### Fixed
+
+- Fix the `otelmux` middleware by using `SpanKindServer` when deciding the `SpanStatus`.
+  This makes `4xx` response codes to not be an error anymore. (#1973)
+- Fixed jaegerremote sampler not behaving properly with per operation strategy set. (#2137)
+- Stopped injecting propagation context into response headers in otelhttp. (#2180)
+- Fix issue where attributes for DynamoDB were not added because of a string miss match. (#2272)
+
+### Removed
+
+- Drop support for Go 1.16.
+  The project currently only supports Go 1.17 and above. (#2314)
+
+## [1.6.0/0.31.0] - 2022-03-28
+
+### Added
+
+- The project is now tested against Go 1.18 (in addition to the existing 1.16 and 1.17) (#1976)
+
+### Changed
+
+- Upgraded all dependencies on stable modules from `go.opentelemetry.io/otel` from v1.5.0 to v1.6.1. (#2134)
+- Upgraded all dependencies on metric modules from `go.opentelemetry.io/otel` from v0.27.0 to v0.28.0. (#1977)
+
+### Fixed
+
+- otelhttp: Avoid panic by adding nil check to `wrappedBody.Close` (#2164)
+
+## [1.5.0/0.30.0/0.1.0] - 2022-03-16
+
+### Added
+
+- Added the `go.opentelemetry.io/contrib/samplers/jaegerremote` package.
+  This package implements the Jaeger remote sampler for OpenTelemetry Go. (#936)
+- DynamoDB spans created with the `go.opentelemetry.io/contrib/instrumentation/github.com/aws/aws-sdk-go-v2/otelaws` package now have the appropriate database attributes added for the operation being performed.
+  These attributes are detected automatically, but it is also now possible to provide a custom function to set attributes using `WithAttributeSetter`. (#1582)
+- Add resource detector for GCP cloud function. (#1584)
+- Add OpenTracing baggage extraction to the OpenTracing propagator in `go.opentelemetry.io/contrib/propagators/ot`. (#1880)
+
+### Fixed
+
+- Fix the `echo` middleware by using `SpanKind.SERVER` when deciding the `SpanStatus`.
+  This makes `4xx` response codes to not be an error anymore. (#1848)
+
+### Removed
+
+- The deprecated `go.opentelemetry.io/contrib/exporters/metric/datadog` module is removed. (#1920)
+- The deprecated `go.opentelemetry.io/contrib/exporters/metric/dogstatsd` module is removed. (#1920)
+- The deprecated `go.opentelemetry.io/contrib/exporters/metric/cortex` module is removed.
+  Use the `go.opentelemetry.io/otel/exporters/otlp/otlpmetric` exporter as a replacement to send data to a collector which can then export with its PRW exporter. (#1920)
+
+## [1.4.0/0.29.0] - 2022-02-14
+
+### Added
+
+- Add `WithClientTrace` option to `go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp`. (#875)
 
 ### Changed
 
@@ -18,14 +113,26 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
-- Change the `http-server-duration` instrument in `go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp` to record milliseconds instead of microseconds match what is specified in the OpenTelemetry specification. (#1414, #1537)
+- Change the `http-server-duration` instrument in `go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp` to record milliseconds instead of microseconds.
+  This changes fixes the code to comply with the OpenTelemetry specification. (#1414, #1537)
+- Fixed the region reported by the `"go.opentelemetry.io/contrib/detectors/gcp".CloudRun` detector to comply with the OpenTelemetry specification.
+  It no longer includes the project scoped region path, instead just the region. (#1546)
 - The `"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp".Transport` type now correctly handles protocol switching responses.
   The returned response body implements the `io.ReadWriteCloser` interface if the underlying one does.
   This ensures that protocol switching requests receive a response body that they can write to. (#1329, #1628)
 
+### Deprecated
+
+- The `go.opentelemetry.io/contrib/exporters/metric/datadog` module is deprecated. (#1639)
+- The `go.opentelemetry.io/contrib/exporters/metric/dogstatsd` module is deprecated. (#1639)
+- The `go.opentelemetry.io/contrib/exporters/metric/cortex` module is deprecated.
+  Use the go.opentelemetry.io/otel/exporters/otlp/otlpmetric exporter as a replacement to send data to a collector which can then export with its PRW exporter. (#1639)
+
 ### Removed
 
-- Remove the MinMaxSumCount from cortex and datadog exporter. (#1554)
+- Remove the `MinMaxSumCount` from cortex and datadog exporter. (#1554)
+- The `go.opentelemetry.io/contrib/exporters/metric/dogstatsd` exporter no longer support exporting histogram or exact data points. (#1639)
+- The `go.opentelemetry.io/contrib/exporters/metric/datadog` exporter no longer support exporting exact data points. (#1639)
 
 ## [1.3.0/0.28.0] - 2021-12-10
 
@@ -431,7 +538,13 @@ First official tagged release of `contrib` repository.
 - Prefix support for dogstatsd (#34)
 - Update Go Runtime package to use batch observer (#44)
 
-[Unreleased]: https://github.com/open-telemetry/opentelemetry-go-contrib/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/open-telemetry/opentelemetry-go-contrib/compare/v1.9.0...HEAD
+[1.9.0/0.34.0/0.4.0]: https://github.com/open-telemetry/opentelemetry-go-contrib/releases/tag/v1.9.0
+[1.8.0/0.33.0]: https://github.com/open-telemetry/opentelemetry-go-contrib/releases/tag/v1.8.0
+[1.7.0/0.32.0]: https://github.com/open-telemetry/opentelemetry-go-contrib/releases/tag/v1.7.0
+[1.6.0/0.31.0]: https://github.com/open-telemetry/opentelemetry-go-contrib/releases/tag/v1.6.0
+[1.5.0/0.30.0/0.1.0]: https://github.com/open-telemetry/opentelemetry-go-contrib/releases/tag/v1.5.0
+[1.4.0/0.29.0]: https://github.com/open-telemetry/opentelemetry-go-contrib/releases/tag/v1.4.0
 [1.3.0/0.28.0]: https://github.com/open-telemetry/opentelemetry-go-contrib/releases/tag/v1.3.0
 [1.2.0/0.27.0]: https://github.com/open-telemetry/opentelemetry-go-contrib/releases/tag/v1.2.0
 [1.1.1/0.26.1]: https://github.com/open-telemetry/opentelemetry-go-contrib/releases/tag/v1.1.1

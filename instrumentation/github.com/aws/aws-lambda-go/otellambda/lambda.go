@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package otellambda
+package otellambda // import "go.opentelemetry.io/contrib/instrumentation/github.com/aws/aws-lambda-go/otellambda"
 
 import (
 	"context"
@@ -24,7 +24,7 @@ import (
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
-	semconv "go.opentelemetry.io/otel/semconv/v1.7.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.12.0"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -56,7 +56,7 @@ func newInstrumentor(opts ...Option) instrumentor {
 		resAttrs: []attribute.KeyValue{}}
 }
 
-// Logic to start OTel Tracing
+// Logic to start OTel Tracing.
 func (i *instrumentor) tracingBegin(ctx context.Context, eventJSON []byte) (context.Context, trace.Span) {
 	// Add trace id to context
 	mc := i.configuration.EventToCarrier(eventJSON)
@@ -94,7 +94,7 @@ func (i *instrumentor) tracingBegin(ctx context.Context, eventJSON []byte) (cont
 	return ctx, span
 }
 
-// Logic to wrap up OTel Tracing
+// Logic to wrap up OTel Tracing.
 func (i *instrumentor) tracingEnd(ctx context.Context, span trace.Span) {
 	span.End()
 

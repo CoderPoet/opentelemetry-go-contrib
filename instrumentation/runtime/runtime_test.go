@@ -15,6 +15,8 @@
 package runtime_test
 
 import (
+	"context"
+	"fmt"
 	goruntime "runtime"
 	"testing"
 	"time"
@@ -23,7 +25,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/contrib/instrumentation/runtime"
-	"go.opentelemetry.io/otel/metric/metrictest"
+	"go.opentelemetry.io/otel/sdk/metric/export/aggregation"
+	"go.opentelemetry.io/otel/sdk/metric/metrictest"
 )
 
 func TestRuntime(t *testing.T) {
@@ -34,25 +37,30 @@ func TestRuntime(t *testing.T) {
 	time.Sleep(time.Second)
 }
 
-func getGCCount(provider *metrictest.MeterProvider) int {
-	for _, b := range provider.MeasurementBatches {
-		for _, m := range b.Measurements {
-			if m.Instrument.Descriptor().Name() == "process.runtime.go.gc.count" {
-				return int(m.Number.CoerceToInt64(m.Instrument.Descriptor().NumberKind()))
+func getGCCount(exp *metrictest.Exporter) int {
+	for _, r := range exp.GetRecords() {
+		if r.InstrumentName == "process.runtime.go.gc.count" {
+			switch r.AggregationKind {
+			case aggregation.SumKind, aggregation.HistogramKind:
+				return int(r.Sum.CoerceToInt64(r.NumberKind))
+			case aggregation.LastValueKind:
+				return int(r.LastValue.CoerceToInt64(r.NumberKind))
+			default:
+				panic(fmt.Sprintf("invalid aggregation type: %v", r.AggregationKind))
 			}
 		}
 	}
 	panic("Could not locate a process.runtime.go.gc.count metric in test output")
 }
 
-func testMinimumInterval(t *testing.T, shouldHappen bool, opts ...runtime.Option) {
+func testMinimumInterval(t *testing.T, expect int, opts ...runtime.Option) {
 	goruntime.GC()
 
 	var mstats0 goruntime.MemStats
 	goruntime.ReadMemStats(&mstats0)
 	baseline := int(mstats0.NumGC)
 
-	provider := metrictest.NewMeterProvider()
+	provider, exp := metrictest.NewTestMeterProvider()
 
 	err := runtime.Start(
 		append(
@@ -64,34 +72,28 @@ func testMinimumInterval(t *testing.T, shouldHappen bool, opts ...runtime.Option
 
 	goruntime.GC()
 
-	provider.RunAsyncInstruments()
+	require.NoError(t, exp.Collect(context.Background()))
 
-	require.Equal(t, 1, getGCCount(provider)-baseline)
+	require.Equal(t, 1, getGCCount(exp)-baseline)
 
-	provider.MeasurementBatches = nil
-
-	extra := 0
-	if shouldHappen {
-		extra = 3
-	}
-
+	// Only counted for small min read mem state itervals.
 	goruntime.GC()
 	goruntime.GC()
 	goruntime.GC()
 
-	provider.RunAsyncInstruments()
+	require.NoError(t, exp.Collect(context.Background()))
 
-	require.Equal(t, 1+extra, getGCCount(provider)-baseline)
+	require.Equal(t, expect, getGCCount(exp)-baseline)
 }
 
 func TestDefaultMinimumInterval(t *testing.T) {
-	testMinimumInterval(t, false)
+	testMinimumInterval(t, 1)
 }
 
 func TestNoMinimumInterval(t *testing.T) {
-	testMinimumInterval(t, true, runtime.WithMinimumReadMemStatsInterval(0))
+	testMinimumInterval(t, 4, runtime.WithMinimumReadMemStatsInterval(0))
 }
 
 func TestExplicitMinimumInterval(t *testing.T) {
-	testMinimumInterval(t, false, runtime.WithMinimumReadMemStatsInterval(time.Hour))
+	testMinimumInterval(t, 1, runtime.WithMinimumReadMemStatsInterval(time.Hour))
 }

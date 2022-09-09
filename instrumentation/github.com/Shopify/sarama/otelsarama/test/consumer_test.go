@@ -25,12 +25,11 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/contrib/instrumentation/github.com/Shopify/sarama/otelsarama"
-	"go.opentelemetry.io/contrib/instrumentation/github.com/Shopify/sarama/otelsarama/internal"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/propagation"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
-	semconv "go.opentelemetry.io/otel/semconv/v1.7.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.12.0"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -113,7 +112,7 @@ func consumeAndCheck(t *testing.T, mt trace.Tracer, complFn func() []sdktrace.Re
 				semconv.MessagingDestinationKey.String("test-topic"),
 				semconv.MessagingOperationReceive,
 				semconv.MessagingMessageIDKey.String("0"),
-				internal.KafkaPartitionKey.Int64(0),
+				semconv.MessagingKafkaPartitionKey.Int64(0),
 			},
 			parentSpanID: trace.SpanContextFromContext(ctx).SpanID(),
 			kind:         trace.SpanKindConsumer,
@@ -126,7 +125,7 @@ func consumeAndCheck(t *testing.T, mt trace.Tracer, complFn func() []sdktrace.Re
 				semconv.MessagingDestinationKey.String("test-topic"),
 				semconv.MessagingOperationReceive,
 				semconv.MessagingMessageIDKey.String("1"),
-				internal.KafkaPartitionKey.Int64(0),
+				semconv.MessagingKafkaPartitionKey.Int64(0),
 			},
 			kind:   trace.SpanKindConsumer,
 			msgKey: []byte("foo2"),
@@ -143,7 +142,7 @@ func consumeAndCheck(t *testing.T, mt trace.Tracer, complFn func() []sdktrace.Re
 			// propagators.Extract always returns a remote SpanContext.
 			assert.Equal(t, sc, span.SpanContext().WithRemote(true))
 
-			assert.Equal(t, "kafka.consume", span.Name())
+			assert.Equal(t, fmt.Sprintf("%s receive", topic), span.Name())
 			assert.Equal(t, expected.kind, span.SpanKind())
 			assert.Equal(t, expected.msgKey, msgList[i].Key)
 			for _, k := range expected.attributeList {

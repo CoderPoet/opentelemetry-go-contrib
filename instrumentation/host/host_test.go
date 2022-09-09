@@ -16,6 +16,7 @@ package host_test
 
 import (
 	"context"
+	"fmt"
 	gonet "net"
 	"os"
 	"testing"
@@ -28,16 +29,16 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/metric/metrictest"
-
 	"go.opentelemetry.io/contrib/instrumentation/host"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/sdk/metric/export/aggregation"
+	"go.opentelemetry.io/otel/sdk/metric/metrictest"
 )
 
-func getMetric(provider *metrictest.MeterProvider, name string, lbl attribute.KeyValue) float64 {
-	for _, b := range provider.MeasurementBatches {
+func getMetric(exp *metrictest.Exporter, name string, lbl attribute.KeyValue) float64 {
+	for _, r := range exp.GetRecords() {
 		foundAttribute := false
-		for _, haveLabel := range b.Labels {
+		for _, haveLabel := range r.Attributes {
 			if haveLabel != lbl {
 				continue
 			}
@@ -48,19 +49,23 @@ func getMetric(provider *metrictest.MeterProvider, name string, lbl attribute.Ke
 			continue
 		}
 
-		for _, m := range b.Measurements {
-			if m.Instrument.Descriptor().Name() != name {
-				continue
-			}
-
-			return m.Number.CoerceToFloat64(m.Instrument.Descriptor().NumberKind())
+		if r.InstrumentName != name {
+			continue
+		}
+		switch r.AggregationKind {
+		case aggregation.SumKind, aggregation.HistogramKind:
+			return r.Sum.CoerceToFloat64(r.NumberKind)
+		case aggregation.LastValueKind:
+			return r.LastValue.CoerceToFloat64(r.NumberKind)
+		default:
+			panic(fmt.Sprintf("invalid aggregation type: %v", r.AggregationKind))
 		}
 	}
 	panic("Could not locate a metric in test output")
 }
 
 func TestHostCPU(t *testing.T) {
-	provider := metrictest.NewMeterProvider()
+	provider, exp := metrictest.NewTestMeterProvider()
 	err := host.Start(
 		host.WithMeterProvider(provider),
 	)
@@ -85,13 +90,13 @@ func TestHostCPU(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	provider.RunAsyncInstruments()
+	require.NoError(t, exp.Collect(ctx))
 
-	processUser := getMetric(provider, "process.cpu.time", host.AttributeCPUTimeUser[0])
-	processSystem := getMetric(provider, "process.cpu.time", host.AttributeCPUTimeSystem[0])
+	processUser := getMetric(exp, "process.cpu.time", host.AttributeCPUTimeUser[0])
+	processSystem := getMetric(exp, "process.cpu.time", host.AttributeCPUTimeSystem[0])
 
-	hostUser := getMetric(provider, "system.cpu.time", host.AttributeCPUTimeUser[0])
-	hostSystem := getMetric(provider, "system.cpu.time", host.AttributeCPUTimeSystem[0])
+	hostUser := getMetric(exp, "system.cpu.time", host.AttributeCPUTimeUser[0])
+	hostSystem := getMetric(exp, "system.cpu.time", host.AttributeCPUTimeSystem[0])
 
 	processAfter, err := proc.TimesWithContext(ctx)
 	require.NoError(t, err)
@@ -123,7 +128,6 @@ func TestHostCPU(t *testing.T) {
 	// Ranges are not empty
 	require.NotEqual(t, hostAfter[0].System, hostBefore[0].System)
 	require.NotEqual(t, hostAfter[0].User, hostBefore[0].User)
-
 	// TODO: We are not testing host "Other" nor "Idle" and
 	// generally the specification hasn't been finalized, so
 	// there's more to do.  Moreover, "Other" is not portable and
@@ -132,7 +136,7 @@ func TestHostCPU(t *testing.T) {
 }
 
 func TestHostMemory(t *testing.T) {
-	provider := metrictest.NewMeterProvider()
+	provider, exp := metrictest.NewTestMeterProvider()
 	err := host.Start(
 		host.WithMeterProvider(provider),
 	)
@@ -142,21 +146,21 @@ func TestHostMemory(t *testing.T) {
 	vMem, err := mem.VirtualMemoryWithContext(ctx)
 	require.NoError(t, err)
 
-	provider.RunAsyncInstruments()
+	require.NoError(t, exp.Collect(ctx))
 
-	hostUsed := getMetric(provider, "system.memory.usage", host.AttributeMemoryUsed[0])
+	hostUsed := getMetric(exp, "system.memory.usage", host.AttributeMemoryUsed[0])
 	assert.Greater(t, hostUsed, 0.0)
 	assert.LessOrEqual(t, hostUsed, float64(vMem.Total))
 
-	hostAvailable := getMetric(provider, "system.memory.usage", host.AttributeMemoryAvailable[0])
+	hostAvailable := getMetric(exp, "system.memory.usage", host.AttributeMemoryAvailable[0])
 	assert.GreaterOrEqual(t, hostAvailable, 0.0)
 	assert.Less(t, hostAvailable, float64(vMem.Total))
 
-	hostUsedUtil := getMetric(provider, "system.memory.utilization", host.AttributeMemoryUsed[0])
+	hostUsedUtil := getMetric(exp, "system.memory.utilization", host.AttributeMemoryUsed[0])
 	assert.Greater(t, hostUsedUtil, 0.0)
 	assert.LessOrEqual(t, hostUsedUtil, 1.0)
 
-	hostAvailableUtil := getMetric(provider, "system.memory.utilization", host.AttributeMemoryAvailable[0])
+	hostAvailableUtil := getMetric(exp, "system.memory.utilization", host.AttributeMemoryAvailable[0])
 	assert.GreaterOrEqual(t, hostAvailableUtil, 0.0)
 	assert.Less(t, hostAvailableUtil, 1.0)
 
@@ -204,7 +208,7 @@ func sendBytes(t *testing.T, count int) error {
 }
 
 func TestHostNetwork(t *testing.T) {
-	provider := metrictest.NewMeterProvider()
+	provider, exp := metrictest.NewTestMeterProvider()
 	err := host.Start(
 		host.WithMeterProvider(provider),
 	)
@@ -227,9 +231,9 @@ func TestHostNetwork(t *testing.T) {
 			uint64(howMuch) <= hostAfter[0].BytesRecv-hostBefore[0].BytesRecv
 	}, 30*time.Second, time.Second/2)
 
-	provider.RunAsyncInstruments()
-	hostTransmit := getMetric(provider, "system.network.io", host.AttributeNetworkTransmit[0])
-	hostReceive := getMetric(provider, "system.network.io", host.AttributeNetworkReceive[0])
+	require.NoError(t, exp.Collect(ctx))
+	hostTransmit := getMetric(exp, "system.network.io", host.AttributeNetworkTransmit[0])
+	hostReceive := getMetric(exp, "system.network.io", host.AttributeNetworkReceive[0])
 
 	// Check that the recorded measurements reflect the same change:
 	require.LessOrEqual(t, uint64(howMuch), uint64(hostTransmit)-hostBefore[0].BytesSent)

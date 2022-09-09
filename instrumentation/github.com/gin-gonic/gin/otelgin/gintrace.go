@@ -14,7 +14,7 @@
 
 // Based on https://github.com/DataDog/dd-trace-go/blob/8fb554ff7cf694267f9077ae35e27ce4689ed8b6/contrib/gin-gonic/gin/gintrace.go
 
-package otelgin
+package otelgin // import "go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
 
 import (
 	"fmt"
@@ -26,7 +26,7 @@ import (
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/propagation"
-	semconv "go.opentelemetry.io/otel/semconv/v1.7.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.12.0"
 	oteltrace "go.opentelemetry.io/otel/trace"
 )
 
@@ -81,7 +81,7 @@ func Middleware(service string, opts ...Option) gin.HandlerFunc {
 
 		status := c.Writer.Status()
 		attrs := semconv.HTTPAttributesFromHTTPStatusCode(status)
-		spanStatus, spanMessage := semconv.SpanStatusFromHTTPStatusCode(status)
+		spanStatus, spanMessage := semconv.SpanStatusFromHTTPStatusCodeAndSpanKind(status, oteltrace.SpanKindServer)
 		span.SetAttributes(attrs...)
 		span.SetStatus(spanStatus, spanMessage)
 		if len(c.Errors) > 0 {

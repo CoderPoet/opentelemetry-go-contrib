@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package gcp
+package gcp // import "go.opentelemetry.io/contrib/detectors/gcp"
 
 import (
 	"context"
@@ -24,10 +24,11 @@ import (
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/sdk/resource"
-	semconv "go.opentelemetry.io/otel/semconv/v1.7.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.12.0"
 )
 
-// GCE collects resource information of GCE computing instances
+// GCE collects resource information of GCE computing instances.
+// Deprecated: Use gcp.NewDetector() instead, which sets the same resource attributes on GCE.
 type GCE struct{}
 
 // compile time assertion that GCE implements the resource.Detector interface.
@@ -94,7 +95,7 @@ func (gce *GCE) Detect(ctx context.Context) (*resource.Resource, error) {
 	return resource.NewWithAttributes(semconv.SchemaURL, attributes...), aggregatedErr
 }
 
-// hasProblem checks if the err is not nil or for missing resources
+// hasProblem checks if the err is not nil or for missing resources.
 func hasProblem(err error) bool {
 	if err == nil {
 		return false

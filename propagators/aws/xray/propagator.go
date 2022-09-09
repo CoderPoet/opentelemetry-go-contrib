@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package xray
+package xray // import "go.opentelemetry.io/contrib/propagators/aws/xray"
 
 import (
 	"context"
@@ -57,7 +57,7 @@ var (
 //
 // Example AWS X-Ray format:
 //
-// X-Amzn-Trace-Id: Root={traceId};Parent={parentId};Sampled={samplingFlag}
+// X-Amzn-Trace-Id: Root={traceId};Parent={parentId};Sampled={samplingFlag}.
 type Propagator struct{}
 
 // Asserts that the propagator implements the otel.TextMapPropagator interface at compile time.

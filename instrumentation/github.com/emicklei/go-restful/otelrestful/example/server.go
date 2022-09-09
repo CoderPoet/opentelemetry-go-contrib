@@ -26,15 +26,16 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	stdout "go.opentelemetry.io/otel/exporters/stdout/stdouttrace"
+	"go.opentelemetry.io/otel/propagation"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	oteltrace "go.opentelemetry.io/otel/trace"
 )
 
 var tracer oteltrace.Tracer
 
-type UserResource struct{}
+type userResource struct{}
 
-func (u UserResource) WebService() *restful.WebService {
+func (u userResource) WebService() *restful.WebService {
 	ws := &restful.WebService{}
 
 	ws.Path("/users").
@@ -43,20 +44,23 @@ func (u UserResource) WebService() *restful.WebService {
 
 	ws.Route(ws.GET("/{user-id}").To(u.getUser).
 		Param(ws.PathParameter("user-id", "identifier of the user").DataType("integer").DefaultValue("1")).
-		Writes(User{}). // on the response
-		Returns(200, "OK", User{}).
+		Writes(user{}). // on the response
+		Returns(200, "OK", user{}).
 		Returns(404, "Not Found", nil))
 	return ws
 }
 
 func main() {
-	tp := initTracer()
+	tp, err := initTracer()
+	if err != nil {
+		log.Fatal(err)
+	}
 	defer func() {
 		if err := tp.Shutdown(context.Background()); err != nil {
 			log.Printf("Error shutting down tracer provider: %v", err)
 		}
 	}()
-	u := UserResource{}
+	u := userResource{}
 	// create the Otel filter
 	filter := otelrestful.OTelFilter("my-service")
 	// use it
@@ -66,32 +70,33 @@ func main() {
 	_ = http.ListenAndServe(":8080", nil)
 }
 
-func initTracer() *sdktrace.TracerProvider {
+func initTracer() (*sdktrace.TracerProvider, error) {
 	exporter, err := stdout.New(stdout.WithPrettyPrint())
 	if err != nil {
-		log.Fatal(err)
+		return nil, err
 	}
 	tp := sdktrace.NewTracerProvider(
 		sdktrace.WithSampler(sdktrace.AlwaysSample()),
 		sdktrace.WithBatcher(exporter),
 	)
 	otel.SetTracerProvider(tp)
+	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(propagation.Baggage{}, propagation.TraceContext{}))
 	tracer = otel.GetTracerProvider().Tracer("go-restful-server", oteltrace.WithInstrumentationVersion("0.1"))
-	return tp
+	return tp, nil
 }
 
-func (u UserResource) getUser(req *restful.Request, resp *restful.Response) {
+func (u userResource) getUser(req *restful.Request, resp *restful.Response) {
 	uid := req.PathParameter("user-id")
 	_, span := tracer.Start(req.Request.Context(), "getUser", oteltrace.WithAttributes(attribute.String("id", uid)))
 	defer span.End()
 	id, err := strconv.Atoi(uid)
 	if err == nil && id >= 100 {
-		_ = resp.WriteEntity(User{id})
+		_ = resp.WriteEntity(user{id})
 		return
 	}
 	_ = resp.WriteErrorString(http.StatusNotFound, "User could not be found.")
 }
 
-type User struct {
+type user struct {
 	ID int `json:"id" description:"identifier of the user"`
 }

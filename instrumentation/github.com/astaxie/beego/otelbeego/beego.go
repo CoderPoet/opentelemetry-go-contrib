@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package otelbeego
+package otelbeego // import "go.opentelemetry.io/contrib/instrumentation/github.com/astaxie/beego/otelbeego"
 
 import (
 	"context"
@@ -150,5 +150,4 @@ func span(c *beego.Controller, spanName string) (context.Context, trace.Span) {
 			Template(c.TplName),
 		),
 	)
-
 }
