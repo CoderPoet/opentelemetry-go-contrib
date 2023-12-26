@@ -2,13 +2,14 @@ module go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgr
 
 go 1.20
 
-replace go.opentelemetry.io/contrib => ../../../../
+replace go.opentelemetry.io/contrib => github.com/coderpoet/opentelemetry-go-contrib v1.3.1-0.20231226171440-1a616f130d95
 
 require (
 	github.com/stretchr/testify v1.8.4
-	go.opentelemetry.io/contrib v0.0.0-00010101000000-000000000000
+	go.opentelemetry.io/contrib v1.3.1-0.20231226171440-1a616f130d95
 	go.opentelemetry.io/otel v1.21.0
 	go.opentelemetry.io/otel/metric v1.21.0
+	go.opentelemetry.io/otel/sdk v1.21.0
 	go.opentelemetry.io/otel/trace v1.21.0
 	google.golang.org/grpc v1.60.1
 	google.golang.org/protobuf v1.32.0
@@ -24,7 +25,6 @@ require (
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/golang/protobuf v1.5.3 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
-	go.opentelemetry.io/otel/sdk v1.21.0 // indirect
 	golang.org/x/net v0.19.0 // indirect
 	golang.org/x/oauth2 v0.13.0 // indirect
 	golang.org/x/sys v0.15.0 // indirect

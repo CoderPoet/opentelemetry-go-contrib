@@ -4,7 +4,7 @@ go 1.20
 
 replace go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp => ../
 
-replace go.opentelemetry.io/contrib => ../../../../../
+replace go.opentelemetry.io/contrib => github.com/coderpoet/opentelemetry-go-contrib v1.3.1-0.20231226171440-1a616f130d95
 
 require (
 	go.opentelemetry.io/contrib/exporters/autoexport v0.46.1
@@ -30,7 +30,7 @@ require (
 	github.com/prometheus/client_model v0.5.0 // indirect
 	github.com/prometheus/common v0.44.0 // indirect
 	github.com/prometheus/procfs v0.11.1 // indirect
-	go.opentelemetry.io/contrib v0.0.0-00010101000000-000000000000 // indirect
+	go.opentelemetry.io/contrib v1.3.1 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc v0.44.0 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp v0.44.0 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.21.0 // indirect

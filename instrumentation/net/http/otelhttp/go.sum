@@ -1,3 +1,5 @@
+github.com/coderpoet/opentelemetry-go-contrib v1.3.1-0.20231226171440-1a616f130d95 h1:SDsFsDPZH9D6rCu/9+VGxY0cJ2pT9zsSKHEqtWjwWKY=
+github.com/coderpoet/opentelemetry-go-contrib v1.3.1-0.20231226171440-1a616f130d95/go.mod h1:h6lho3ou4HfxlluQCcenkiF40v6JusgY4EcTLD3UwXA=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/felixge/httpsnoop v1.0.4 h1:NFTV2Zj1bL4mc9sqWACXbQFVBBg2W3GPvqp8/ESS2Wg=
