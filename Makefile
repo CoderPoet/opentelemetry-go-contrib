@@ -17,7 +17,7 @@ TOOLS_MOD_DIR := ./tools
 ALL_DOCS := $(shell find . -name '*.md' -type f | sort)
 ALL_GO_MOD_DIRS := $(shell find . -type f -name 'go.mod' -exec dirname {} \; | sort)
 OTEL_GO_MOD_DIRS := $(filter-out $(TOOLS_MOD_DIR), $(ALL_GO_MOD_DIRS))
-ALL_COVERAGE_MOD_DIRS := $(shell find . -type f -name 'go.mod' -exec dirname {} \; | egrep -v '^./example|^$(TOOLS_MOD_DIR)' | sort)
+ALL_COVERAGE_MOD_DIRS := $(shell find . -type f -name 'go.mod' -exec dirname {} \; | grep -E -v '^./example|^$(TOOLS_MOD_DIR)' | sort)
 
 # URLs to check if all contrib entries exist in the registry.
 REGISTRY_BASE_URL = https://raw.githubusercontent.com/open-telemetry/opentelemetry.io/main/content/en/registry
@@ -29,8 +29,8 @@ TIMEOUT = 60
 .DEFAULT_GOAL := precommit
 
 .PHONY: precommit ci
-precommit: dependabot-generate license-check misspell go-mod-tidy vanity-import-fix golangci-lint-fix test-default
-ci: dependabot-check license-check lint vanity-import-check build test-default check-clean-work-tree test-coverage
+precommit: generate dependabot-generate license-check misspell go-mod-tidy golangci-lint-fix test-default
+ci: generate dependabot-check license-check lint vanity-import-check build test-default check-clean-work-tree test-coverage
 
 # Tools
 
@@ -68,20 +68,47 @@ $(TOOLS)/dbotconf: PACKAGE=go.opentelemetry.io/build-tools/dbotconf
 CROSSLINK = $(TOOLS)/crosslink
 $(CROSSLINK): PACKAGE=go.opentelemetry.io/build-tools/crosslink
 
-tools: $(GOLANGCI_LINT) $(MISSPELL) $(GOCOVMERGE) $(STRINGER) $(PORTO) $(MULTIMOD) $(DBOTCONF) $(CROSSLINK)
+GOTMPL = $(TOOLS)/gotmpl
+$(GOTMPL): PACKAGE=go.opentelemetry.io/build-tools/gotmpl
 
-# Build
+GORELEASE = $(TOOLS)/gorelease
+$(GORELEASE): PACKAGE=golang.org/x/exp/cmd/gorelease
 
-.PHONY: generate build
+GOJSONSCHEMA = $(TOOLS)/go-jsonschema
+$(GOJSONSCHEMA): PACKAGE=github.com/atombender/go-jsonschema
 
-generate: $(OTEL_GO_MOD_DIRS:%=generate/%)
-generate/%: DIR=$*
-generate/%: | $(STRINGER)
+GOVULNCHECK = $(TOOLS)/govulncheck
+$(GOVULNCHECK): PACKAGE=golang.org/x/vuln/cmd/govulncheck
+
+tools: $(GOLANGCI_LINT) $(MISSPELL) $(GOCOVMERGE) $(STRINGER) $(PORTO) $(MULTIMOD) $(DBOTCONF) $(CROSSLINK) $(GOTMPL) $(GORELEASE) $(GOJSONSCHEMA) $(GOVULNCHECK)
+
+# Generate
+
+.PHONY: generate
+generate: go-generate vanity-import-fix
+
+.PHONY: go-generate
+go-generate: $(OTEL_GO_MOD_DIRS:%=go-generate/%)
+go-generate/%: DIR=$*
+go-generate/%: | $(STRINGER) $(GOTMPL)
 	@echo "$(GO) generate $(DIR)/..." \
 		&& cd $(DIR) \
 		&& PATH="$(TOOLS):$${PATH}" $(GO) generate ./...
 
-build: generate $(OTEL_GO_MOD_DIRS:%=build/%) $(OTEL_GO_MOD_DIRS:%=build-tests/%)
+.PHONY: vanity-import-fix
+vanity-import-fix: | $(PORTO)
+	@$(PORTO) --include-internal -w .
+
+# Generate go.work file for local development.
+.PHONY: go-work
+go-work: | $(CROSSLINK)
+	$(CROSSLINK) work --root=$(shell pwd)
+
+# Build
+
+.PHONY: build
+
+build: $(OTEL_GO_MOD_DIRS:%=build/%) $(OTEL_GO_MOD_DIRS:%=build-tests/%)
 build/%: DIR=$*
 build/%:
 	@echo "$(GO) build $(DIR)/..." \
@@ -119,27 +146,31 @@ go-mod-tidy/%: DIR=$*
 go-mod-tidy/%:
 	@echo "$(GO) mod tidy in $(DIR)" \
 		&& cd $(DIR) \
-		&& $(GO) mod tidy -compat=1.17
+		&& $(GO) mod tidy -compat=1.20
 
 .PHONY: misspell
 misspell: | $(MISSPELL)
 	@$(MISSPELL) -w $(ALL_DOCS)
 
+.PHONY: govulncheck
+govulncheck: $(ALL_GO_MOD_DIRS:%=govulncheck/%)
+govulncheck/%: DIR=$*
+govulncheck/%: | $(GOVULNCHECK)
+	@echo "govulncheck in $(DIR)" \
+		&& cd $(DIR) \
+		&& $(GOVULNCHECK) ./...
+
 .PHONY: vanity-import-check
 vanity-import-check: | $(PORTO)
-	@$(PORTO) --include-internal -l . || echo "(run: make vanity-import-fix)"
-
-.PHONY: vanity-import-fix
-vanity-import-fix: | $(PORTO)
-	@$(PORTO) --include-internal -w .
+	@$(PORTO) --include-internal -l . || ( echo "(run: make vanity-import-fix)"; exit 1 )
 
 .PHONY: lint
-lint: go-mod-tidy golangci-lint misspell
+lint: go-mod-tidy golangci-lint misspell govulncheck
 
 .PHONY: license-check
 license-check:
 	@licRes=$$(for f in $$(find . -type f \( -iname '*.go' -o -iname '*.sh' \) ! -path './vendor/*' ! -path './exporters/otlp/internal/opentelemetry-proto/*') ; do \
-	           awk '/Copyright The OpenTelemetry Authors|generated|GENERATED/ && NR<=3 { found=1; next } END { if (!found) print FILENAME }' $$f; \
+	           awk '/Copyright The OpenTelemetry Authors|generated|GENERATED/ && NR<=4 { found=1; next } END { if (!found) print FILENAME }' $$f; \
 	   done); \
 	   if [ -n "$${licRes}" ]; then \
 	           echo "license header checking failed:"; echo "$${licRes}"; \
@@ -172,7 +203,7 @@ registry-links-check:
 DEPENDABOT_CONFIG = .github/dependabot.yml
 .PHONY: dependabot-check
 dependabot-check: | $(DBOTCONF)
-	@$(DBOTCONF) verify $(DEPENDABOT_CONFIG) || echo "(run: make dependabot-generate)"
+	@$(DBOTCONF) verify $(DEPENDABOT_CONFIG) || ( echo "(run: make dependabot-generate)"; exit 1 )
 
 .PHONY: dependabot-generate
 dependabot-generate: | $(DBOTCONF)
@@ -222,23 +253,6 @@ test-coverage/%:
 		&& $$CMD ./... \
 		&& $(GO) tool cover -html=coverage.out -o coverage.html;
 
-.PHONY: test-gocql
-test-gocql:
-	@if ./tools/should_build.sh gocql; then \
-	  set -e; \
-	  docker run --name cass-integ --rm -p 9042:9042 -d cassandra:3; \
-	  CMD=cassandra IMG_NAME=cass-integ ./tools/wait.sh; \
-	  (cd instrumentation/github.com/gocql/gocql/otelgocql/test/ && \
-	    $(GO) test \
-		  -covermode=$(COVERAGE_MODE) \
-		  -coverprofile=$(COVERAGE_PROFILE) \
-		  -coverpkg=go.opentelemetry.io/contrib/instrumentation/github.com/gocql/gocql/otelgocql/...  \
-		  ./... \
-	    && $(GO) tool cover -html=$(COVERAGE_PROFILE) -o coverage.html); \
-	  cp ./instrumentation/github.com/gocql/gocql/otelgocql/test/coverage.out ./; \
-	  docker stop cass-integ; \
-	fi
-
 .PHONY: test-mongo-driver
 test-mongo-driver:
 	@if ./tools/should_build.sh mongo-driver; then \
@@ -256,31 +270,22 @@ test-mongo-driver:
 	  docker stop mongo-integ; \
 	fi
 
-.PHONY: test-gomemcache
-test-gomemcache:
-	@if ./tools/should_build.sh gomemcache; then \
-	  set -e; \
-	  docker run --name gomemcache-integ --rm -p 11211:11211 -d memcached; \
-	  CMD=gomemcache IMG_NAME=gomemcache-integ  ./tools/wait.sh; \
-	  (cd instrumentation/github.com/bradfitz/gomemcache/memcache/otelmemcache/test && \
-	    $(GO) test \
-		  -covermode=$(COVERAGE_MODE) \
-		  -coverprofile=$(COVERAGE_PROFILE) \
-		  -coverpkg=go.opentelemetry.io/contrib/instrumentation/github.com/bradfitz/gomemcache/memcache/otelmemcache/...  \
-		  ./... \
-	    && $(GO) tool cover -html=$(COVERAGE_PROFILE) -o coverage.html); \
-	  docker stop gomemcache-integ ; \
-	  cp ./instrumentation/github.com/bradfitz/gomemcache/memcache/otelmemcache/test/coverage.out ./; \
-	fi
-
 # Releasing
+
+.PHONY: gorelease
+gorelease: $(OTEL_GO_MOD_DIRS:%=gorelease/%)
+gorelease/%: DIR=$*
+gorelease/%:| $(GORELEASE)
+	@echo "gorelease in $(DIR):" \
+		&& cd $(DIR) \
+		&& $(GORELEASE) \
+		|| echo ""
 
 COREPATH ?= "../opentelemetry-go"
 .PHONY: sync-core
 sync-core: | $(MULTIMOD)
 	@[ ! -d $COREPATH ] || ( echo ">> Path to core repository must be set in COREPATH and must exist"; exit 1 )
 	$(MULTIMOD) verify && $(MULTIMOD) sync -a -o ${COREPATH}
-
 
 .PHONY: prerelease
 prerelease: | $(MULTIMOD)
@@ -292,3 +297,33 @@ COMMIT ?= "HEAD"
 add-tags: | $(MULTIMOD)
 	@[ "${MODSET}" ] || ( echo ">> env var MODSET is not set"; exit 1 )
 	$(MULTIMOD) verify && $(MULTIMOD) tag -m ${MODSET} -c ${COMMIT}
+
+# The source directory for opentelemetry-configuration schema.
+OPENTELEMETRY_CONFIGURATION_JSONSCHEMA_SRC_DIR=tmp/opentelememetry-configuration
+
+# The SHA matching the current version of the opentelemetry-configuration schema to use
+OPENTELEMETRY_CONFIGURATION_JSONSCHEMA_VERSION=f38ac7c3a499ae5f81924ef9c455c27a56130562
+
+# Cleanup temporary directory
+genjsonschema-cleanup:
+	rm -Rf ${OPENTELEMETRY_CONFIGURATION_JSONSCHEMA_SRC_DIR}
+
+GENERATED_CONFIG=./config/generated_config.go
+
+# Generate structs for configuration from opentelemetry-configuration schema
+genjsonschema: genjsonschema-cleanup $(GOJSONSCHEMA)
+	mkdir -p ${OPENTELEMETRY_CONFIGURATION_JSONSCHEMA_SRC_DIR}
+	curl -sSL https://api.github.com/repos/open-telemetry/opentelemetry-configuration/tarball/${OPENTELEMETRY_CONFIGURATION_JSONSCHEMA_VERSION} | tar xz --strip 1 -C ${OPENTELEMETRY_CONFIGURATION_JSONSCHEMA_SRC_DIR}
+	$(GOJSONSCHEMA) \
+		--capitalization ID \
+		--capitalization OTLP \
+		--struct-name-from-title \
+		--package config \
+		--tags mapstructure \
+		--output ${GENERATED_CONFIG} \
+		${OPENTELEMETRY_CONFIGURATION_JSONSCHEMA_SRC_DIR}/schema/opentelemetry_configuration.json
+	@echo Modify jsonschema generated files.
+	sed -f ./config/jsonschema_patch.sed ${GENERATED_CONFIG} > ${GENERATED_CONFIG}.tmp
+	mv ${GENERATED_CONFIG}.tmp ${GENERATED_CONFIG}
+	$(MAKE) lint
+	$(MAKE) genjsonschema-cleanup

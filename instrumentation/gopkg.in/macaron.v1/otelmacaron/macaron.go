@@ -20,20 +20,21 @@ import (
 
 	"gopkg.in/macaron.v1"
 
+	"go.opentelemetry.io/contrib/instrumentation/gopkg.in/macaron.v1/otelmacaron/internal/semconvutil"
 	"go.opentelemetry.io/otel/propagation"
-	semconv "go.opentelemetry.io/otel/semconv/v1.12.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.20.0"
 	oteltrace "go.opentelemetry.io/otel/trace"
 )
 
-// instrumentationName is the name of this instrumentation package.
-const instrumentationName = "go.opentelemetry.io/contrib/instrumentation/gopkg.in/macaron.v1/otelmacaron"
+// ScopeName is the instrumentation scope name.
+const ScopeName = "go.opentelemetry.io/contrib/instrumentation/gopkg.in/macaron.v1/otelmacaron"
 
 // Middleware returns a macaron Handler to trace requests to the server.
 func Middleware(service string, opts ...Option) macaron.Handler {
 	cfg := newConfig(opts)
 	tracer := cfg.TracerProvider.Tracer(
-		instrumentationName,
-		oteltrace.WithInstrumentationVersion(SemVersion()),
+		ScopeName,
+		oteltrace.WithInstrumentationVersion(Version()),
 	)
 	return func(res http.ResponseWriter, req *http.Request, c *macaron.Context) {
 		savedCtx := c.Req.Request.Context()
@@ -43,9 +44,7 @@ func Middleware(service string, opts ...Option) macaron.Handler {
 
 		ctx := cfg.Propagators.Extract(savedCtx, propagation.HeaderCarrier(c.Req.Header))
 		opts := []oteltrace.SpanStartOption{
-			oteltrace.WithAttributes(semconv.NetAttributesFromHTTPRequest("tcp", c.Req.Request)...),
-			oteltrace.WithAttributes(semconv.EndUserAttributesFromHTTPRequest(c.Req.Request)...),
-			oteltrace.WithAttributes(semconv.HTTPServerAttributesFromHTTPRequest(service, "", c.Req.Request)...),
+			oteltrace.WithAttributes(semconvutil.HTTPServerRequest(service, c.Req.Request)...),
 			oteltrace.WithSpanKind(oteltrace.SpanKindServer),
 		}
 		// TODO: span name should be router template not the actual request path, eg /user/:id vs /user/123
@@ -63,9 +62,9 @@ func Middleware(service string, opts ...Option) macaron.Handler {
 		c.Next()
 
 		status := c.Resp.Status()
-		attrs := semconv.HTTPAttributesFromHTTPStatusCode(status)
-		spanStatus, spanMessage := semconv.SpanStatusFromHTTPStatusCodeAndSpanKind(status, oteltrace.SpanKindServer)
-		span.SetAttributes(attrs...)
-		span.SetStatus(spanStatus, spanMessage)
+		span.SetStatus(semconvutil.HTTPServerStatus(status))
+		if status > 0 {
+			span.SetAttributes(semconv.HTTPStatusCode(status))
+		}
 	}
 }

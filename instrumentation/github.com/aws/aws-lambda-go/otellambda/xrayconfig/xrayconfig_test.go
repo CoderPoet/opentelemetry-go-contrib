@@ -35,18 +35,14 @@ import (
 )
 
 func TestEventToCarrier(t *testing.T) {
-	os.Clearenv()
-
-	_ = os.Setenv("_X_AMZN_TRACE_ID", "traceID")
+	t.Setenv("_X_AMZN_TRACE_ID", "traceID")
 	carrier := xrayEventToCarrier([]byte{})
 
 	assert.Equal(t, "traceID", carrier.Get("X-Amzn-Trace-Id"))
 }
 
 func TestEventToCarrierWithPropagator(t *testing.T) {
-	os.Clearenv()
-
-	_ = os.Setenv("_X_AMZN_TRACE_ID", "Root=1-5759e988-bd862e3fe1be46a994272793;Parent=53995c3f42cd8ad8;Sampled=1")
+	t.Setenv("_X_AMZN_TRACE_ID", "Root=1-5759e988-bd862e3fe1be46a994272793;Parent=53995c3f42cd8ad8;Sampled=1")
 	carrier := xrayEventToCarrier([]byte{})
 	ctx := xray.Propagator{}.Extract(context.Background(), carrier)
 
@@ -63,16 +59,18 @@ func TestEventToCarrierWithPropagator(t *testing.T) {
 	assert.Equal(t, expectedCtx, ctx)
 }
 
-func setEnvVars() {
-	_ = os.Setenv("AWS_LAMBDA_FUNCTION_NAME", "testFunction")
-	_ = os.Setenv("AWS_REGION", "us-texas-1")
-	_ = os.Setenv("AWS_LAMBDA_FUNCTION_VERSION", "$LATEST")
-	_ = os.Setenv("_X_AMZN_TRACE_ID", "Root=1-5759e988-bd862e3fe1be46a994272793;Parent=53995c3f42cd8ad8;Sampled=1")
+func setEnvVars(t *testing.T) {
+	t.Setenv("AWS_LAMBDA_FUNCTION_NAME", "testFunction")
+	t.Setenv("AWS_REGION", "us-texas-1")
+	t.Setenv("AWS_LAMBDA_FUNCTION_VERSION", "$LATEST")
+	t.Setenv("AWS_LAMBDA_LOG_STREAM_NAME", "2023/01/01/[$LATEST]5d1edb9e525d486696cf01a3503487bc")
+	t.Setenv("AWS_LAMBDA_FUNCTION_MEMORY_SIZE", "128")
+	t.Setenv("_X_AMZN_TRACE_ID", "Root=1-5759e988-bd862e3fe1be46a994272793;Parent=53995c3f42cd8ad8;Sampled=1")
 
 	// fix issue: "The requested service provider could not be loaded or initialized."
 	// Guess: The env for Windows in GitHub action is incomplete
 	if runtime.GOOS == "windows" && os.Getenv("SYSTEMROOT") == "" {
-		_ = os.Setenv("SYSTEMROOT", `C:\Windows`)
+		t.Setenv("SYSTEMROOT", `C:\Windows`)
 	}
 }
 
@@ -90,7 +88,7 @@ var (
 		})
 
 	expectedSpans = v1trace.ScopeSpans{
-		Scope: &v1common.InstrumentationScope{Name: "go.opentelemetry.io/contrib/instrumentation/github.com/aws/aws-lambda-go/otellambda", Version: otellambda.SemVersion()},
+		Scope: &v1common.InstrumentationScope{Name: "go.opentelemetry.io/contrib/instrumentation/github.com/aws/aws-lambda-go/otellambda", Version: otellambda.Version()},
 		Spans: []*v1trace.Span{{
 			TraceId:           []byte{0x57, 0x59, 0xe9, 0x88, 0xbd, 0x86, 0x2e, 0x3f, 0xe1, 0xbe, 0x46, 0xa9, 0x94, 0x27, 0x27, 0x93},
 			SpanId:            nil,
@@ -100,9 +98,11 @@ var (
 			Kind:              v1trace.Span_SPAN_KIND_SERVER,
 			StartTimeUnixNano: 0,
 			EndTimeUnixNano:   0,
-			Attributes: []*v1common.KeyValue{{Key: "faas.execution", Value: &v1common.AnyValue{Value: &v1common.AnyValue_StringValue{StringValue: "123"}}},
-				{Key: "faas.id", Value: &v1common.AnyValue{Value: &v1common.AnyValue_StringValue{StringValue: "arn:partition:service:region:account-id:resource-type:resource-id"}}},
-				{Key: "cloud.account.id", Value: &v1common.AnyValue{Value: &v1common.AnyValue_StringValue{StringValue: "account-id"}}}},
+			Attributes: []*v1common.KeyValue{
+				{Key: "faas.invocation_id", Value: &v1common.AnyValue{Value: &v1common.AnyValue_StringValue{StringValue: "123"}}},
+				{Key: "aws.lambda.invoked_arn", Value: &v1common.AnyValue{Value: &v1common.AnyValue_StringValue{StringValue: "arn:partition:service:region:account-id:resource-type:resource-id"}}},
+				{Key: "cloud.account.id", Value: &v1common.AnyValue{Value: &v1common.AnyValue_StringValue{StringValue: "account-id"}}},
+			},
 			DroppedAttributesCount: 0,
 			Events:                 nil,
 			DroppedEventsCount:     0,
@@ -114,10 +114,14 @@ var (
 	}
 
 	expectedSpanResource = v1resource.Resource{
-		Attributes: []*v1common.KeyValue{{Key: "cloud.provider", Value: &v1common.AnyValue{Value: &v1common.AnyValue_StringValue{StringValue: "aws"}}},
+		Attributes: []*v1common.KeyValue{
+			{Key: "cloud.provider", Value: &v1common.AnyValue{Value: &v1common.AnyValue_StringValue{StringValue: "aws"}}},
 			{Key: "cloud.region", Value: &v1common.AnyValue{Value: &v1common.AnyValue_StringValue{StringValue: "us-texas-1"}}},
+			{Key: "faas.instance", Value: &v1common.AnyValue{Value: &v1common.AnyValue_StringValue{StringValue: "2023/01/01/[$LATEST]5d1edb9e525d486696cf01a3503487bc"}}},
+			{Key: "faas.max_memory", Value: &v1common.AnyValue{Value: &v1common.AnyValue_IntValue{IntValue: 128}}},
 			{Key: "faas.name", Value: &v1common.AnyValue{Value: &v1common.AnyValue_StringValue{StringValue: "testFunction"}}},
-			{Key: "faas.version", Value: &v1common.AnyValue{Value: &v1common.AnyValue_StringValue{StringValue: "$LATEST"}}}},
+			{Key: "faas.version", Value: &v1common.AnyValue{Value: &v1common.AnyValue_StringValue{StringValue: "$LATEST"}}},
+		},
 		DroppedAttributesCount: 0,
 	}
 
@@ -129,11 +133,13 @@ var (
 )
 
 func assertResourceEquals(t *testing.T, expected *v1resource.Resource, actual *v1resource.Resource) {
-	assert.Len(t, actual.Attributes, 4)
+	assert.Len(t, actual.Attributes, 6)
 	assert.Equal(t, expected.Attributes[0].String(), actual.Attributes[0].String())
 	assert.Equal(t, expected.Attributes[1].String(), actual.Attributes[1].String())
 	assert.Equal(t, expected.Attributes[2].String(), actual.Attributes[2].String())
 	assert.Equal(t, expected.Attributes[3].String(), actual.Attributes[3].String())
+	assert.Equal(t, expected.Attributes[4].String(), actual.Attributes[4].String())
+	assert.Equal(t, expected.Attributes[5].String(), actual.Attributes[5].String())
 	assert.Equal(t, expected.DroppedAttributesCount, actual.DroppedAttributesCount)
 }
 
@@ -159,7 +165,7 @@ func assertSpanEqualsIgnoreTimeAndSpanID(t *testing.T, expected *v1trace.Resourc
 }
 
 func TestWrapEndToEnd(t *testing.T) {
-	setEnvVars()
+	setEnvVars(t)
 
 	ctx := context.Background()
 	tp, err := NewTracerProvider(ctx)
@@ -168,7 +174,7 @@ func TestWrapEndToEnd(t *testing.T) {
 	customerHandler := func() (string, error) {
 		return "hello world", nil
 	}
-	mockCollector := runMockCollectorAtEndpoint(t, ":4317")
+	mockCollector := runMockCollectorAtEndpoint(t, "localhost:4317")
 	defer func() {
 		_ = mockCollector.Stop()
 	}()

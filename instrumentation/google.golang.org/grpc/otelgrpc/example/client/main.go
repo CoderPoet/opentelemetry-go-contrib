@@ -43,9 +43,8 @@ func main() {
 	}()
 
 	var conn *grpc.ClientConn
-	conn, err = grpc.Dial(":7777", grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithUnaryInterceptor(otelgrpc.UnaryClientInterceptor()),
-		grpc.WithStreamInterceptor(otelgrpc.StreamClientInterceptor()),
+	conn, err = grpc.Dial("127.0.0.1:7777", grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithStatsHandler(otelgrpc.NewClientHandler()),
 	)
 
 	if err != nil {
@@ -165,7 +164,6 @@ func callSayHelloBidiStream(c api.HelloServiceClient) error {
 	go func() {
 		for i := 0; i < 5; i++ {
 			err := stream.Send(&api.HelloRequest{Greeting: "World"})
-
 			if err != nil {
 				// nolint: revive  // This acts as its own main func.
 				log.Fatalf("Error when sending to SayHelloBidiStream: %s", err)

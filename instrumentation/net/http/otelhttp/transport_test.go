@@ -33,7 +33,7 @@ import (
 )
 
 func TestTransportFormatter(t *testing.T) {
-	var httpMethods = []struct {
+	httpMethods := []struct {
 		name     string
 		method   string
 		expected string
@@ -201,6 +201,7 @@ type readCloser struct {
 func (rc readCloser) Read(p []byte) (n int, err error) {
 	return readSize, rc.readErr
 }
+
 func (rc readCloser) Close() error {
 	return rc.closeErr
 }
@@ -379,4 +380,33 @@ func TestTransportProtocolSwitch(t *testing.T) {
 	t.Cleanup(func() { require.NoError(t, res.Body.Close()) })
 
 	assert.Implements(t, (*io.ReadWriteCloser)(nil), res.Body, "invalid body returned for protocol switch")
+}
+
+func TestTransportOriginRequestNotModify(t *testing.T) {
+	prop := propagation.TraceContext{}
+
+	ctx := context.Background()
+	sc := trace.NewSpanContext(trace.SpanContextConfig{
+		TraceID: trace.TraceID{0x01},
+		SpanID:  trace.SpanID{0x01},
+	})
+	ctx = trace.ContextWithRemoteSpanContext(ctx, sc)
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	r, err := http.NewRequestWithContext(ctx, http.MethodGet, ts.URL, http.NoBody)
+	require.NoError(t, err)
+
+	expectedRequest := r.Clone(r.Context())
+
+	c := http.Client{Transport: NewTransport(http.DefaultTransport, WithPropagators(prop))}
+	res, err := c.Do(r)
+	require.NoError(t, err)
+
+	t.Cleanup(func() { require.NoError(t, res.Body.Close()) })
+
+	assert.Equal(t, expectedRequest, r)
 }

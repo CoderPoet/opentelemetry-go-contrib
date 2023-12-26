@@ -18,38 +18,20 @@ package otelecho
 
 import (
 	"context"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/labstack/echo/v4"
-
 	"github.com/stretchr/testify/assert"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
+	"go.opentelemetry.io/otel/trace/noop"
 
 	b3prop "go.opentelemetry.io/contrib/propagators/b3"
 )
-
-func TestErrorOnlyHandledOnce(t *testing.T) {
-	router := echo.New()
-	timesHandlingError := 0
-	router.HTTPErrorHandler = func(e error, c echo.Context) {
-		timesHandlingError++
-	}
-	router.Use(Middleware("test-service"))
-	router.GET("/", func(c echo.Context) error {
-		return errors.New("mock error")
-	})
-	r := httptest.NewRequest(http.MethodGet, "/", nil)
-	w := httptest.NewRecorder()
-	router.ServeHTTP(w, r)
-
-	assert.Equal(t, 1, timesHandlingError)
-}
 
 func TestGetSpanNotInstrumented(t *testing.T) {
 	router := echo.New()
@@ -58,7 +40,7 @@ func TestGetSpanNotInstrumented(t *testing.T) {
 		span := trace.SpanFromContext(c.Request().Context())
 		ok := !span.SpanContext().IsValid()
 		assert.True(t, ok)
-		return c.String(200, "ok")
+		return c.String(http.StatusOK, "ok")
 	})
 	r := httptest.NewRequest("GET", "/ping", nil)
 	w := httptest.NewRecorder()
@@ -68,7 +50,7 @@ func TestGetSpanNotInstrumented(t *testing.T) {
 }
 
 func TestPropagationWithGlobalPropagators(t *testing.T) {
-	provider := trace.NewNoopTracerProvider()
+	provider := noop.NewTracerProvider()
 	otel.SetTextMapPropagator(propagation.TraceContext{})
 
 	r := httptest.NewRequest("GET", "/user/123", nil)
@@ -80,7 +62,7 @@ func TestPropagationWithGlobalPropagators(t *testing.T) {
 		SpanID:  trace.SpanID{0x01},
 	})
 	ctx = trace.ContextWithRemoteSpanContext(ctx, sc)
-	ctx, _ = provider.Tracer(tracerName).Start(ctx, "test")
+	ctx, _ = provider.Tracer(ScopeName).Start(ctx, "test")
 	otel.GetTextMapPropagator().Inject(ctx, propagation.HeaderCarrier(r.Header))
 
 	router := echo.New()
@@ -89,7 +71,7 @@ func TestPropagationWithGlobalPropagators(t *testing.T) {
 		span := trace.SpanFromContext(c.Request().Context())
 		assert.Equal(t, sc.TraceID(), span.SpanContext().TraceID())
 		assert.Equal(t, sc.SpanID(), span.SpanContext().SpanID())
-		return c.NoContent(200)
+		return c.NoContent(http.StatusOK)
 	})
 
 	router.ServeHTTP(w, r)
@@ -98,7 +80,7 @@ func TestPropagationWithGlobalPropagators(t *testing.T) {
 }
 
 func TestPropagationWithCustomPropagators(t *testing.T) {
-	provider := trace.NewNoopTracerProvider()
+	provider := noop.NewTracerProvider()
 
 	b3 := b3prop.New()
 
@@ -111,7 +93,7 @@ func TestPropagationWithCustomPropagators(t *testing.T) {
 		SpanID:  trace.SpanID{0x01},
 	})
 	ctx = trace.ContextWithRemoteSpanContext(ctx, sc)
-	ctx, _ = provider.Tracer(tracerName).Start(ctx, "test")
+	ctx, _ = provider.Tracer(ScopeName).Start(ctx, "test")
 	b3.Inject(ctx, propagation.HeaderCarrier(r.Header))
 
 	router := echo.New()
@@ -120,7 +102,7 @@ func TestPropagationWithCustomPropagators(t *testing.T) {
 		span := trace.SpanFromContext(c.Request().Context())
 		assert.Equal(t, sc.TraceID(), span.SpanContext().TraceID())
 		assert.Equal(t, sc.SpanID(), span.SpanContext().SpanID())
-		return c.NoContent(200)
+		return c.NoContent(http.StatusOK)
 	})
 
 	router.ServeHTTP(w, r)
@@ -141,7 +123,7 @@ func TestSkipper(t *testing.T) {
 		span := trace.SpanFromContext(c.Request().Context())
 		assert.False(t, span.SpanContext().HasSpanID())
 		assert.False(t, span.SpanContext().HasTraceID())
-		return c.NoContent(200)
+		return c.NoContent(http.StatusOK)
 	})
 
 	router.ServeHTTP(w, r)

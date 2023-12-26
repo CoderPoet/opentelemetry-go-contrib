@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"math"
 	"net/url"
+	"reflect"
 	"sort"
 	"strings"
 	"sync"
@@ -30,8 +31,10 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 )
 
-const manifestTTL = 3600
-const version = 1
+const (
+	manifestTTL = 3600
+	version     = 1
+)
 
 // Manifest represents a full sampling ruleset and provides
 // options for configuring Logger, Clock and xrayClient.
@@ -183,7 +186,22 @@ func (m *Manifest) updateRules(rules *getSamplingRulesOutput) {
 	// Re-sort to fix matching priorities.
 	tempManifest.sort()
 
+	currentRuleMap := make(map[string]Rule)
+
 	m.mu.Lock()
+	for _, rule := range m.Rules {
+		currentRuleMap[rule.ruleProperties.RuleName] = rule
+	}
+
+	// Preserve entire Rule if newRule.ruleProperties == curRule.ruleProperties
+	for i, newRule := range tempManifest.Rules {
+		if curRule, ok := currentRuleMap[newRule.ruleProperties.RuleName]; ok {
+			if reflect.DeepEqual(newRule.ruleProperties, curRule.ruleProperties) {
+				tempManifest.Rules[i] = curRule
+			}
+		}
+	}
+
 	m.Rules = tempManifest.Rules
 	m.refreshedAt = m.clock.now()
 	m.mu.Unlock()

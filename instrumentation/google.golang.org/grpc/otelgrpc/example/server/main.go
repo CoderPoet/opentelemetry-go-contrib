@@ -34,10 +34,6 @@ import (
 	"google.golang.org/grpc"
 )
 
-const (
-	port = ":7777"
-)
-
 var tracer = otel.Tracer("grpc-example")
 
 // server is used to implement api.HelloServiceServer.
@@ -134,14 +130,13 @@ func main() {
 		}
 	}()
 
-	lis, err := net.Listen("tcp", port)
+	lis, err := net.Listen("tcp", "127.0.0.1:7777")
 	if err != nil {
 		log.Fatalf("failed to listen: %v", err)
 	}
 
 	s := grpc.NewServer(
-		grpc.UnaryInterceptor(otelgrpc.UnaryServerInterceptor()),
-		grpc.StreamInterceptor(otelgrpc.StreamServerInterceptor()),
+		grpc.StatsHandler(otelgrpc.NewServerHandler()),
 	)
 
 	api.RegisterHelloServiceServer(s, &server{})

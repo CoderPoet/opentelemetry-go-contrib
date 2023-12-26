@@ -20,7 +20,7 @@ import (
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/sdk/resource"
-	semconv "go.opentelemetry.io/otel/semconv/v1.12.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.17.0"
 )
 
 const (
@@ -28,6 +28,7 @@ const (
 )
 
 // NewCloudFunction will return a GCP Cloud Function resource detector.
+//
 // Deprecated: Use gcp.NewDetector() instead, which sets the same resource attributes.
 func NewCloudFunction() resource.Detector {
 	return &cloudFunction{
@@ -59,9 +60,9 @@ func (f *cloudFunction) Detect(ctx context.Context) (*resource.Resource, error) 
 	attributes := []attribute.KeyValue{
 		semconv.CloudProviderGCP,
 		semconv.CloudPlatformGCPCloudFunctions,
-		semconv.FaaSNameKey.String(functionName),
-		semconv.CloudAccountIDKey.String(projectID),
-		semconv.CloudRegionKey.String(region),
+		semconv.FaaSName(functionName),
+		semconv.CloudAccountID(projectID),
+		semconv.CloudRegion(region),
 	}
 	return resource.NewWithAttributes(semconv.SchemaURL, attributes...), nil
 }

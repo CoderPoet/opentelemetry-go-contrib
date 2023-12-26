@@ -27,11 +27,11 @@ import (
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/sdk/resource"
-	semconv "go.opentelemetry.io/otel/semconv/v1.12.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.21.0"
 )
 
 const (
-	k8sTokenPath      = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+	k8sTokenPath      = "/var/run/secrets/kubernetes.io/serviceaccount/token" //nolint:gosec // False positive G101: Potential hardcoded credentials. The detector only check if the token exists.
 	k8sCertPath       = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
 	authConfigmapNS   = "kube-system"
 	authConfigmapName = "aws-auth"
@@ -99,7 +99,7 @@ func (detector *resourceDetector) Detect(ctx context.Context) (*resource.Resourc
 		return nil, err
 	}
 	if clusterName != "" {
-		attributes = append(attributes, semconv.K8SClusterNameKey.String(clusterName))
+		attributes = append(attributes, semconv.K8SClusterName(clusterName))
 	}
 
 	// Get containerID and append to attributes
@@ -108,7 +108,7 @@ func (detector *resourceDetector) Detect(ctx context.Context) (*resource.Resourc
 		return nil, err
 	}
 	if containerID != "" {
-		attributes = append(attributes, semconv.ContainerIDKey.String(containerID))
+		attributes = append(attributes, semconv.ContainerID(containerID))
 	}
 
 	// Return new resource object with clusterName and containerID as attributes

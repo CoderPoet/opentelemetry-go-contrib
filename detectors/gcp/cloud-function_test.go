@@ -24,12 +24,10 @@ import (
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/sdk/resource"
-	semconv "go.opentelemetry.io/otel/semconv/v1.12.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.17.0"
 )
 
-var (
-	errTest = errors.New("testError")
-)
+var errTest = errors.New("testError")
 
 const (
 	projectIDValue = "some-projectID"
@@ -133,9 +131,9 @@ func TestCloudFunctionDetect(t *testing.T) {
 				res: resource.NewSchemaless([]attribute.KeyValue{
 					semconv.CloudProviderGCP,
 					semconv.CloudPlatformGCPCloudFunctions,
-					semconv.FaaSNameKey.String(functionName),
-					semconv.CloudAccountIDKey.String(projectIDValue),
-					semconv.CloudRegionKey.String(regionValue),
+					semconv.FaaSName(functionName),
+					semconv.CloudAccountID(projectIDValue),
+					semconv.CloudRegion(regionValue),
 				}...),
 				err: nil,
 			},

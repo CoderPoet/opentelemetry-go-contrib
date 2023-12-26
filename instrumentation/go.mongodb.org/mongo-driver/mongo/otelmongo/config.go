@@ -19,7 +19,8 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-const defaultTracerName = "go.opentelemetry.io/contrib/instrumentation/go.mongodb.org/mongo-driver/mongo/otelmongo"
+// ScopeName is the instrumentation scope name.
+const ScopeName = "go.opentelemetry.io/contrib/instrumentation/go.mongodb.org/mongo-driver/mongo/otelmongo"
 
 // config is used to configure the mongo tracer.
 type config struct {
@@ -33,15 +34,16 @@ type config struct {
 // newConfig returns a config with all Options set.
 func newConfig(opts ...Option) config {
 	cfg := config{
-		TracerProvider: otel.GetTracerProvider(),
+		TracerProvider:           otel.GetTracerProvider(),
+		CommandAttributeDisabled: true,
 	}
 	for _, opt := range opts {
 		opt.apply(&cfg)
 	}
 
 	cfg.Tracer = cfg.TracerProvider.Tracer(
-		defaultTracerName,
-		trace.WithInstrumentationVersion(SemVersion()),
+		ScopeName,
+		trace.WithInstrumentationVersion(Version()),
 	)
 	return cfg
 }
@@ -68,7 +70,8 @@ func WithTracerProvider(provider trace.TracerProvider) Option {
 }
 
 // WithCommandAttributeDisabled specifies if the MongoDB command is added as an attribute to Spans or not.
-// The MongoDB command will be added as an attribute to Spans by default if this option is not provided.
+// This is disabled by default and the MongoDB command will not be added as an attribute
+// to Spans if this option is not provided.
 func WithCommandAttributeDisabled(disabled bool) Option {
 	return optionFunc(func(cfg *config) {
 		cfg.CommandAttributeDisabled = disabled
