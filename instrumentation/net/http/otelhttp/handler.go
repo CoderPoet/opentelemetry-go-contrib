@@ -20,6 +20,9 @@ import (
 	"time"
 
 	"github.com/felixge/httpsnoop"
+	"go.opentelemetry.io/contrib/internal/measure/request"
+	"go.opentelemetry.io/contrib/internal/semantic"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp/internal/semconvutil"
 	"go.opentelemetry.io/otel"
@@ -46,9 +49,11 @@ type middleware struct {
 	publicEndpoint    bool
 	publicEndpointFn  func(*http.Request) bool
 
-	requestBytesCounter  metric.Int64Counter
-	responseBytesCounter metric.Int64Counter
-	serverLatencyMeasure metric.Float64Histogram
+	measure request.Measure
+
+	//requestBytesCounter  metric.Int64Counter
+	//responseBytesCounter metric.Int64Counter
+	//serverLatencyMeasure metric.Float64Histogram
 }
 
 func defaultHandlerFormatter(operation string, _ *http.Request) string {
@@ -76,7 +81,7 @@ func NewMiddleware(operation string, opts ...Option) func(http.Handler) http.Han
 
 	c := newConfig(append(defaultOpts, opts...)...)
 	h.configure(c)
-	h.createMeasures()
+	//h.createMeasures()
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -97,36 +102,13 @@ func (h *middleware) configure(c *config) {
 	h.publicEndpoint = c.PublicEndpoint
 	h.publicEndpointFn = c.PublicEndpointFn
 	h.server = c.ServerName
+	h.measure = c.Measure
 }
 
 func handleErr(err error) {
 	if err != nil {
 		otel.Handle(err)
 	}
-}
-
-func (h *middleware) createMeasures() {
-	var err error
-	h.requestBytesCounter, err = h.meter.Int64Counter(
-		RequestContentLength,
-		metric.WithUnit("By"),
-		metric.WithDescription("Measures the size of HTTP request content length (uncompressed)"),
-	)
-	handleErr(err)
-
-	h.responseBytesCounter, err = h.meter.Int64Counter(
-		ResponseContentLength,
-		metric.WithUnit("By"),
-		metric.WithDescription("Measures the size of HTTP response content length (uncompressed)"),
-	)
-	handleErr(err)
-
-	h.serverLatencyMeasure, err = h.meter.Float64Histogram(
-		ServerLatency,
-		metric.WithUnit("ms"),
-		metric.WithDescription("Measures the duration of HTTP request handling"),
-	)
-	handleErr(err)
 }
 
 // serveHTTP sets up tracing and calls the given next http.Handler with the span
@@ -231,14 +213,36 @@ func (h *middleware) serveHTTP(w http.ResponseWriter, r *http.Request, next http
 	if rww.statusCode > 0 {
 		attributes = append(attributes, semconv.HTTPStatusCode(rww.statusCode))
 	}
-	o := metric.WithAttributes(attributes...)
-	h.requestBytesCounter.Add(ctx, bw.read, o)
-	h.responseBytesCounter.Add(ctx, rww.written, o)
+
+	// source service from header
+	attributes = append(attributes, semantic.PeerAttributesFromServerHTTPHeader(r.Header)...)
+
+	// set canonical service attributes
+	if canonicalService := semantic.CanonicalServiceFromSpan(span); canonicalService != "" {
+		span.SetAttributes(
+			semantic.CanonicalServiceKey.String(canonicalService),
+			semantic.DestinationCanonicalServiceKey.String(canonicalService),
+		)
+	}
+
+	// Record R.E.D metrics
+	//attributes := append(labeler.Get(), semconv.HTTPServerMetricAttributesFromHTTPRequest(h.operation, r)...)
+	attributes = append(attributes, semantic.SpanKindKeyServer)
+	if readOnlySpan, ok := span.(sdktrace.ReadOnlySpan); ok {
+		attributes = append(attributes, semantic.MetricsAttributesFromSpanAttributes(readOnlySpan.Attributes(), readOnlySpan.Status().Code)...)
+	}
+	// Use floating point division here for higher precision (instead of Millisecond method).
+	duration := time.Since(requestStartTime)
+	h.measure.Record(ctx, 1, duration, attributes...)
+
+	//o := metric.WithAttributes(attributes...)
+	//h.requestBytesCounter.Add(ctx, bw.read, o)
+	//h.responseBytesCounter.Add(ctx, rww.written, o)
 
 	// Use floating point division here for higher precision (instead of Millisecond method).
-	elapsedTime := float64(time.Since(requestStartTime)) / float64(time.Millisecond)
+	//elapsedTime := float64(time.Since(requestStartTime)) / float64(time.Millisecond)
 
-	h.serverLatencyMeasure.Record(ctx, elapsedTime, o)
+	//h.serverLatencyMeasure.Record(ctx, elapsedTime, o)
 }
 
 func setAfterServeAttributes(span trace.Span, read, wrote int64, statusCode int, rerr, werr error) {

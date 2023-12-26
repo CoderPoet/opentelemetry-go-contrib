@@ -19,13 +19,14 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
 
+	"go.opentelemetry.io/contrib/exporters/autoexport"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/baggage"
-	"go.opentelemetry.io/otel/exporters/stdout/stdoutmetric"
 	"go.opentelemetry.io/otel/exporters/stdout/stdouttrace"
 	"go.opentelemetry.io/otel/propagation"
 
@@ -49,7 +50,7 @@ func initTracer() (*sdktrace.TracerProvider, error) {
 	tp := sdktrace.NewTracerProvider(
 		sdktrace.WithSampler(sdktrace.AlwaysSample()),
 		sdktrace.WithBatcher(exporter),
-		sdktrace.WithResource(resource.NewWithAttributes(semconv.SchemaURL, semconv.ServiceName("ExampleService"))),
+		sdktrace.WithResource(resource.NewWithAttributes(semconv.SchemaURL, semconv.ServiceName("server.test-ns.test-env"))),
 	)
 	otel.SetTracerProvider(tp)
 	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(propagation.TraceContext{}, propagation.Baggage{}))
@@ -57,12 +58,16 @@ func initTracer() (*sdktrace.TracerProvider, error) {
 }
 
 func initMeter() (*sdkmetric.MeterProvider, error) {
-	exp, err := stdoutmetric.New()
+	ctx := context.Background()
+
+	os.Setenv("OTEL_METRICS_EXPORTER", "prometheus")
+
+	r, err := autoexport.NewMetricReader(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(sdkmetric.NewPeriodicReader(exp)))
+	mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(r))
 	otel.SetMeterProvider(mp)
 	return mp, nil
 }

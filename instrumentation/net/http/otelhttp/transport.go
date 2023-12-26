@@ -19,11 +19,15 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptrace"
+	"time"
 
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp/internal/semconvutil"
+	"go.opentelemetry.io/contrib/internal/measure/request"
+	"go.opentelemetry.io/contrib/internal/semantic"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/propagation"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -32,12 +36,15 @@ import (
 type Transport struct {
 	rt http.RoundTripper
 
-	tracer            trace.Tracer
-	propagators       propagation.TextMapPropagator
-	spanStartOptions  []trace.SpanStartOption
-	filters           []Filter
-	spanNameFormatter func(string, *http.Request) string
-	clientTrace       func(context.Context) *httptrace.ClientTrace
+	measure request.Measure
+
+	tracer             trace.Tracer
+	propagators        propagation.TextMapPropagator
+	spanStartOptions   []trace.SpanStartOption
+	filters            []Filter
+	spanNameFormatter  func(string, *http.Request) string
+	operationFormatter func(string, *http.Request) string
+	clientTrace        func(context.Context) *httptrace.ClientTrace
 }
 
 var _ http.RoundTripper = &Transport{}
@@ -73,7 +80,9 @@ func (t *Transport) applyConfig(c *config) {
 	t.spanStartOptions = c.SpanStartOptions
 	t.filters = c.Filters
 	t.spanNameFormatter = c.SpanNameFormatter
+	t.operationFormatter = c.OperationFormatter
 	t.clientTrace = c.ClientTrace
+	t.measure = c.Measure
 }
 
 func defaultTransportFormatter(_ string, r *http.Request) string {
@@ -90,6 +99,8 @@ func (t *Transport) RoundTrip(r *http.Request) (*http.Response, error) {
 			return t.rt.RoundTrip(r)
 		}
 	}
+
+	start := time.Now()
 
 	tracer := t.tracer
 
@@ -110,6 +121,24 @@ func (t *Transport) RoundTrip(r *http.Request) (*http.Response, error) {
 	}
 
 	r = r.Clone(ctx) // According to RoundTripper spec, we shouldn't modify the origin request.
+
+	// operation
+	span.SetAttributes(semantic.OperationKey.String(t.operationFormatter("", r)))
+
+	// peer attributes
+	if readonlySpan, ok := span.(sdktrace.ReadOnlySpan); ok {
+		span.SetAttributes(semantic.PeerAttributesFromClientHTTPHeader(
+			ctx,
+			r.Header,
+			r.Host,
+			readonlySpan.Attributes(),
+			readonlySpan.Resource().Attributes(),
+		)...)
+
+		// inject service info into http header
+		semantic.InjectPeerToMetadata(r.Header, readonlySpan.Resource().Attributes())
+	}
+
 	span.SetAttributes(semconvutil.HTTPClientRequest(r)...)
 	t.propagators.Inject(ctx, propagation.HeaderCarrier(r.Header))
 
@@ -124,6 +153,13 @@ func (t *Transport) RoundTrip(r *http.Request) (*http.Response, error) {
 	span.SetAttributes(semconvutil.HTTPClientResponse(res)...)
 	span.SetStatus(semconvutil.HTTPClientStatus(res.StatusCode))
 	res.Body = newWrappedBody(span, res.Body)
+
+	// Record R.E.D metrics
+	if readonlySpan, ok := span.(sdktrace.ReadOnlySpan); ok {
+		metricsAttributes := semantic.MetricsAttributesFromSpanAttributes(readonlySpan.Attributes(), readonlySpan.Status().Code)
+		metricsAttributes = append(metricsAttributes, semantic.SpanKindKeyClient)
+		t.measure.Record(ctx, 1, time.Since(start), metricsAttributes...)
+	}
 
 	return res, err
 }

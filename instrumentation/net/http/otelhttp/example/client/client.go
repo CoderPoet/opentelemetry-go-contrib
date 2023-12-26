@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"go.opentelemetry.io/otel/sdk/resource"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/baggage"
@@ -47,6 +48,7 @@ func initTracer() (*sdktrace.TracerProvider, error) {
 	tp := sdktrace.NewTracerProvider(
 		sdktrace.WithSampler(sdktrace.AlwaysSample()),
 		sdktrace.WithBatcher(exporter),
+		sdktrace.WithResource(resource.NewWithAttributes(semconv.SchemaURL, semconv.ServiceName("client.test-ns.test-env"))),
 	)
 	otel.SetTracerProvider(tp)
 	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(propagation.TraceContext{}, propagation.Baggage{}))

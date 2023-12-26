@@ -15,14 +15,54 @@
 package config // import "go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc/example/config"
 
 import (
+	"context"
+	"os"
+	"sync"
+
+	"go.opentelemetry.io/contrib/exporters/autoexport"
 	"go.opentelemetry.io/otel"
 	stdout "go.opentelemetry.io/otel/exporters/stdout/stdouttrace"
 	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/sdk/instrumentation"
+	sdkresource "go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	semconv "go.opentelemetry.io/otel/semconv/v1.20.0"
+
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 )
 
+var resource *sdkresource.Resource
+var initResourcesOnce sync.Once
+
 // Init configures an OpenTelemetry exporter and trace provider.
-func Init() (*sdktrace.TracerProvider, error) {
+func Init(serviceName string) (*sdktrace.TracerProvider, *sdkmetric.MeterProvider, error) {
+	tp, err := initTracerProvider(serviceName)
+	if err != nil {
+		return nil, nil, err
+	}
+	mp := initMeterProvider(serviceName)
+	return tp, mp, nil
+}
+
+func initResource(serviceName string) *sdkresource.Resource {
+	initResourcesOnce.Do(func() {
+		extraResources, _ := sdkresource.New(
+			context.Background(),
+			sdkresource.WithOS(),
+			sdkresource.WithProcess(),
+			sdkresource.WithContainer(),
+			sdkresource.WithHost(),
+			sdkresource.WithAttributes(semconv.ServiceName(serviceName)),
+		)
+		resource, _ = sdkresource.Merge(
+			sdkresource.Default(),
+			extraResources,
+		)
+	})
+	return resource
+}
+
+func initTracerProvider(serviceName string) (*sdktrace.TracerProvider, error) {
 	exporter, err := stdout.New(stdout.WithPrettyPrint())
 	if err != nil {
 		return nil, err
@@ -30,8 +70,32 @@ func Init() (*sdktrace.TracerProvider, error) {
 	tp := sdktrace.NewTracerProvider(
 		sdktrace.WithSampler(sdktrace.AlwaysSample()),
 		sdktrace.WithBatcher(exporter),
+		sdktrace.WithResource(initResource(serviceName)),
 	)
 	otel.SetTracerProvider(tp)
 	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(propagation.TraceContext{}, propagation.Baggage{}))
+
 	return tp, nil
+}
+
+func initMeterProvider(serviceName string) *sdkmetric.MeterProvider {
+	ctx := context.Background()
+
+	os.Setenv("OTEL_METRICS_EXPORTER", "prometheus")
+
+	r, err := autoexport.NewMetricReader(ctx)
+	if err != nil {
+		return nil
+	}
+
+	mp := sdkmetric.NewMeterProvider(
+		sdkmetric.WithReader(r),
+		sdkmetric.WithResource(initResource(serviceName)),
+		sdkmetric.WithView(sdkmetric.NewView(
+			sdkmetric.Instrument{Scope: instrumentation.Scope{Name: "go.opentelemetry.io/contrib/google.golang.org/grpc/otelgrpc"}},
+			sdkmetric.Stream{Aggregation: sdkmetric.AggregationDrop{}},
+		)),
+	)
+	otel.SetMeterProvider(mp)
+	return mp
 }

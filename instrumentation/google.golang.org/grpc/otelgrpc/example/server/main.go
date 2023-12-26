@@ -120,13 +120,18 @@ func (s *server) SayHelloBidiStream(stream api.HelloService_SayHelloBidiStreamSe
 }
 
 func main() {
-	tp, err := config.Init()
+	tp, mp, err := config.Init("server.test-ns.test-env")
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer func() {
 		if err := tp.Shutdown(context.Background()); err != nil {
 			log.Printf("Error shutting down tracer provider: %v", err)
+		}
+	}()
+	defer func() {
+		if err := mp.Shutdown(context.Background()); err != nil {
+			log.Printf("Error shutting down meter provider: %v", err)
 		}
 	}()
 

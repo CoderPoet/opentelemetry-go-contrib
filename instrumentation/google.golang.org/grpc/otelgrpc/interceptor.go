@@ -23,6 +23,8 @@ import (
 	"strconv"
 	"time"
 
+	"go.opentelemetry.io/contrib/internal/semantic"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"google.golang.org/grpc"
 	grpc_codes "google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
@@ -33,7 +35,6 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc/internal"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
-	"go.opentelemetry.io/otel/metric"
 	semconv "go.opentelemetry.io/otel/semconv/v1.17.0"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -100,6 +101,21 @@ func UnaryClientInterceptor(opts ...Option) grpc.UnaryClientInterceptor {
 			startOpts...,
 		)
 		defer span.End()
+
+		// get resource from read only span, then inject into metadata
+		if readOnlySpan, ok := span.(sdktrace.ReadOnlySpan); ok {
+			// carrier from metadata
+			md, ok := metadata.FromIncomingContext(ctx)
+			if !ok {
+				md = metadata.MD{}
+			}
+			carrier := &metadataSupplier{metadata: &md}
+
+			// inject resource into metadata
+			semantic.InjectPeerMetadata(carrier, readOnlySpan.Resource().Attributes())
+			// inject metadata into ctx
+			ctx = metadata.NewOutgoingContext(ctx, md)
+		}
 
 		ctx = inject(ctx, cfg.Propagators)
 
@@ -260,6 +276,19 @@ func StreamClientInterceptor(opts ...Option) grpc.StreamClientInterceptor {
 			startOpts...,
 		)
 
+		// carrier from metadata
+		md, ok := metadata.FromIncomingContext(ctx)
+		if !ok {
+			md = metadata.MD{}
+		}
+		carrier := &metadataSupplier{metadata: &md}
+		// read only span
+		readOnlySpan := span.(sdktrace.ReadOnlySpan)
+		// inject resource into metadata
+		semantic.InjectPeerMetadata(carrier, readOnlySpan.Resource().Attributes())
+		// inject metadata into ctx
+		ctx = metadata.NewOutgoingContext(ctx, md)
+
 		ctx = inject(ctx, cfg.Propagators)
 
 		s, err := streamer(ctx, desc, cc, method, callOpts...)
@@ -317,6 +346,17 @@ func UnaryServerInterceptor(opts ...Option) grpc.UnaryServerInterceptor {
 		)
 		defer span.End()
 
+		// carrier from metadata
+		md, ok := metadata.FromIncomingContext(ctx)
+		if !ok {
+			md = metadata.MD{}
+		}
+		carrier := &metadataSupplier{metadata: &md}
+		// source service resource attrs
+		sourceServiceAttrs := semantic.ExtractPeerMetadataAttributes(carrier)
+		// set source service resource attrs into span
+		span.SetAttributes(sourceServiceAttrs...)
+
 		if cfg.ReceivedEvent {
 			messageReceived.Event(ctx, 1, req)
 		}
@@ -340,11 +380,15 @@ func UnaryServerInterceptor(opts ...Option) grpc.UnaryServerInterceptor {
 		grpcStatusCodeAttr := statusCodeAttr(s.Code())
 		span.SetAttributes(grpcStatusCodeAttr)
 
-		// Use floating point division here for higher precision (instead of Millisecond method).
-		elapsedTime := float64(time.Since(before)) / float64(time.Millisecond)
-
 		metricAttrs = append(metricAttrs, grpcStatusCodeAttr)
-		cfg.rpcDuration.Record(ctx, elapsedTime, metric.WithAttributes(metricAttrs...))
+
+		// Record R.E.D topology metrics
+		if readOnlySpan, ok := span.(sdktrace.ReadOnlySpan); ok {
+			metricAttrs = append(metricAttrs,
+				semantic.MetricsAttributesFromSpanAttributes(readOnlySpan.Attributes(), readOnlySpan.Status().Code)...)
+		}
+		metricAttrs = append(metricAttrs, semantic.SpanKindKeyServer)
+		cfg.measure.Record(ctx, 1, time.Since(before), metricAttrs...)
 
 		return resp, err
 	}
@@ -442,6 +486,17 @@ func StreamServerInterceptor(opts ...Option) grpc.StreamServerInterceptor {
 			startOpts...,
 		)
 		defer span.End()
+
+		// carrier from metadata
+		md, ok := metadata.FromIncomingContext(ctx)
+		if !ok {
+			md = metadata.MD{}
+		}
+		carrier := &metadataSupplier{metadata: &md}
+		// source service resource attrs
+		sourceServiceAttrs := semantic.ExtractPeerMetadataAttributes(carrier)
+		// set source service resource attrs into span
+		span.SetAttributes(sourceServiceAttrs...)
 
 		err := handler(srv, wrapServerStream(ctx, ss, cfg))
 		if err != nil {

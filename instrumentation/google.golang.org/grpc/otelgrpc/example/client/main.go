@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"os"
 	"time"
 
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc/example/api"
@@ -32,7 +33,8 @@ import (
 )
 
 func main() {
-	tp, err := config.Init()
+	os.Setenv("OTEL_EXPORTER_PROMETHEUS_PORT", "9465")
+	tp, mp, err := config.Init("client.test-ns.test-env")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -41,10 +43,18 @@ func main() {
 			log.Printf("Error shutting down tracer provider: %v", err)
 		}
 	}()
+	defer func() {
+		if err := mp.Shutdown(context.Background()); err != nil {
+			log.Printf("Error shutting down meter provider: %v", err)
+		}
+	}()
 
 	var conn *grpc.ClientConn
 	conn, err = grpc.Dial("127.0.0.1:7777", grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithStatsHandler(otelgrpc.NewClientHandler()),
+		grpc.WithStatsHandler(otelgrpc.NewClientHandler(
+			// Note: set dest service name
+			otelgrpc.WithPeerService("server.test-ns.test-env"),
+		)),
 	)
 
 	if err != nil {
@@ -54,20 +64,22 @@ func main() {
 
 	c := api.NewHelloServiceClient(conn)
 
-	if err := callSayHello(c); err != nil {
-		log.Fatal(err)
-	}
-	if err := callSayHelloClientStream(c); err != nil {
-		log.Fatal(err)
-	}
-	if err := callSayHelloServerStream(c); err != nil {
-		log.Fatal(err)
-	}
-	if err := callSayHelloBidiStream(c); err != nil {
-		log.Fatal(err)
-	}
+	for true {
+		if err := callSayHello(c); err != nil {
+			log.Fatal(err)
+		}
+		if err := callSayHelloClientStream(c); err != nil {
+			log.Fatal(err)
+		}
+		if err := callSayHelloServerStream(c); err != nil {
+			log.Fatal(err)
+		}
+		if err := callSayHelloBidiStream(c); err != nil {
+			log.Fatal(err)
+		}
 
-	time.Sleep(10 * time.Millisecond)
+		time.Sleep(1 * time.Second)
+	}
 }
 
 func callSayHello(c api.HelloServiceClient) error {

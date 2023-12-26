@@ -15,6 +15,7 @@
 package otelgrpc // import "go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 
 import (
+	"go.opentelemetry.io/contrib/internal/measure/request"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
@@ -46,19 +47,23 @@ type config struct {
 	ReceivedEvent bool
 	SentEvent     bool
 
+	PeerService string
+
 	tracer trace.Tracer
 	meter  metric.Meter
 
-	rpcDuration        metric.Float64Histogram
-	rpcRequestSize     metric.Int64Histogram
-	rpcResponseSize    metric.Int64Histogram
-	rpcRequestsPerRPC  metric.Int64Histogram
-	rpcResponsesPerRPC metric.Int64Histogram
+	measure request.Measure
 }
 
 // Option applies an option value for a config.
 type Option interface {
 	apply(*config)
+}
+
+type option func(cfg *config)
+
+func (fn option) apply(c *config) {
+	fn(c)
 }
 
 // newConfig returns a config configured with all the passed Options.
@@ -83,41 +88,9 @@ func newConfig(opts []Option, role string) *config {
 		metric.WithSchemaURL(semconv.SchemaURL),
 	)
 
-	var err error
-	c.rpcDuration, err = c.meter.Float64Histogram("rpc."+role+".duration",
-		metric.WithDescription("Measures the duration of inbound RPC."),
-		metric.WithUnit("ms"))
-	if err != nil {
-		otel.Handle(err)
-	}
-
-	c.rpcRequestSize, err = c.meter.Int64Histogram("rpc."+role+".request.size",
-		metric.WithDescription("Measures size of RPC request messages (uncompressed)."),
-		metric.WithUnit("By"))
-	if err != nil {
-		otel.Handle(err)
-	}
-
-	c.rpcResponseSize, err = c.meter.Int64Histogram("rpc."+role+".response.size",
-		metric.WithDescription("Measures size of RPC response messages (uncompressed)."),
-		metric.WithUnit("By"))
-	if err != nil {
-		otel.Handle(err)
-	}
-
-	c.rpcRequestsPerRPC, err = c.meter.Int64Histogram("rpc."+role+".requests_per_rpc",
-		metric.WithDescription("Measures the number of messages received per RPC. Should be 1 for all non-streaming RPCs."),
-		metric.WithUnit("{count}"))
-	if err != nil {
-		otel.Handle(err)
-	}
-
-	c.rpcResponsesPerRPC, err = c.meter.Int64Histogram("rpc."+role+".responses_per_rpc",
-		metric.WithDescription("Measures the number of messages received per RPC. Should be 1 for all non-streaming RPCs."),
-		metric.WithUnit("{count}"))
-	if err != nil {
-		otel.Handle(err)
-	}
+	c.measure = request.New(
+		request.WithMeter(c.meter),
+	)
 
 	return c
 }
@@ -226,4 +199,12 @@ func (o spanStartOption) apply(c *config) {
 // trace.SpanOptions, which are applied to each new span.
 func WithSpanOptions(opts ...trace.SpanStartOption) Option {
 	return spanStartOption{opts}
+}
+
+// WithPeerService configures peerService
+// eg: a -> b，a peerService is b
+func WithPeerService(peerService string) Option {
+	return option(func(cfg *config) {
+		cfg.PeerService = peerService
+	})
 }

@@ -19,6 +19,7 @@ import (
 	"net/http"
 	"net/http/httptrace"
 
+	"go.opentelemetry.io/contrib/internal/measure/request"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/propagation"
@@ -31,18 +32,21 @@ const ScopeName = "go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp
 // config represents the configuration options available for the http.Handler
 // and http.Transport types.
 type config struct {
-	ServerName        string
-	Tracer            trace.Tracer
-	Meter             metric.Meter
-	Propagators       propagation.TextMapPropagator
-	SpanStartOptions  []trace.SpanStartOption
-	PublicEndpoint    bool
-	PublicEndpointFn  func(*http.Request) bool
-	ReadEvent         bool
-	WriteEvent        bool
-	Filters           []Filter
-	SpanNameFormatter func(string, *http.Request) string
-	ClientTrace       func(context.Context) *httptrace.ClientTrace
+	ServerName         string
+	Tracer             trace.Tracer
+	Meter              metric.Meter
+	Propagators        propagation.TextMapPropagator
+	SpanStartOptions   []trace.SpanStartOption
+	PublicEndpoint     bool
+	PublicEndpointFn   func(*http.Request) bool
+	ReadEvent          bool
+	WriteEvent         bool
+	Filters            []Filter
+	SpanNameFormatter  func(string, *http.Request) string
+	OperationFormatter func(string, *http.Request) string
+	ClientTrace        func(context.Context) *httptrace.ClientTrace
+
+	Measure request.Measure
 
 	TracerProvider trace.TracerProvider
 	MeterProvider  metric.MeterProvider
@@ -62,8 +66,9 @@ func (o optionFunc) apply(c *config) {
 // newConfig creates a new config struct and applies opts to it.
 func newConfig(opts ...Option) *config {
 	c := &config{
-		Propagators:   otel.GetTextMapPropagator(),
-		MeterProvider: otel.GetMeterProvider(),
+		Propagators:        otel.GetTextMapPropagator(),
+		MeterProvider:      otel.GetMeterProvider(),
+		OperationFormatter: defaultOperationFormatter,
 	}
 	for _, opt := range opts {
 		opt.apply(c)
@@ -79,7 +84,13 @@ func newConfig(opts ...Option) *config {
 		metric.WithInstrumentationVersion(Version()),
 	)
 
+	c.Measure = request.New(request.WithMeter(c.Meter))
+
 	return c
+}
+
+func defaultOperationFormatter(s string, request *http.Request) string {
+	return s
 }
 
 // WithTracerProvider specifies a tracer provider to use for creating a tracer.
